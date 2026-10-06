@@ -264,7 +264,7 @@ constexpr uint8_t UART1_TX_PIN = 1;
 constexpr uint8_t UART1_RX_PIN = 3;
 constexpr uint32_t UART1_BAUD = 921600;
 
-constexpr uint8_t UART_MAX_KIT = 4;   // kit 0..4 (5 kits)
+constexpr uint8_t UART_MAX_KIT = 9;   // kit 0..9 (10 kits)
 
 // ======================================================
 // Kit Management (TASK 3 — control plane)
