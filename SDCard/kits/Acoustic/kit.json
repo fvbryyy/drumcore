@@ -1,0 +1,19 @@
+{
+  "kitId": 0,
+  "id": 0,
+  "name": "Acoustic",
+  "pads": [
+    { "sample": "KICK.wav", "midiNote": 36, "threshold": 300, "releaseThreshold": 250, "peakTime": 1200, "releaseStableTime": 3000, "maskBaseMs": 30, "sensitivity": 100, "curve": 0, "padType": 1, "chokeGroup": 0 },
+    { "sample": "SNARE.wav", "midiNote": 38, "threshold": 300, "releaseThreshold": 250, "peakTime": 1200, "releaseStableTime": 3000, "maskBaseMs": 15, "sensitivity": 100, "curve": 0, "padType": 2, "chokeGroup": 0 },
+    { "sample": "CHH.wav", "midiNote": 40, "threshold": 300, "releaseThreshold": 250, "peakTime": 1200, "releaseStableTime": 3000, "maskBaseMs": 15, "sensitivity": 100, "curve": 0, "padType": 5, "chokeGroup": 0 },
+    { "sample": "OHH.wav", "midiNote": 45, "threshold": 300, "releaseThreshold": 250, "peakTime": 1200, "releaseStableTime": 3000, "maskBaseMs": 15, "sensitivity": 100, "curve": 0, "padType": 5, "chokeGroup": 0 },
+    { "sample": "TOM1.wav", "midiNote": 47, "threshold": 300, "releaseThreshold": 250, "peakTime": 1200, "releaseStableTime": 3000, "maskBaseMs": 15, "sensitivity": 100, "curve": 0, "padType": 3, "chokeGroup": 0 },
+    { "sample": "TOM2.wav", "midiNote": 48, "threshold": 300, "releaseThreshold": 250, "peakTime": 1200, "releaseStableTime": 3000, "maskBaseMs": 15, "sensitivity": 100, "curve": 0, "padType": 3, "chokeGroup": 0 },
+    { "sample": "FLOOR.wav", "midiNote": 50, "threshold": 300, "releaseThreshold": 250, "peakTime": 1200, "releaseStableTime": 3000, "maskBaseMs": 15, "sensitivity": 100, "curve": 0, "padType": 3, "chokeGroup": 0 },
+    { "sample": "LCRASH.wav", "midiNote": 41, "threshold": 300, "releaseThreshold": 250, "peakTime": 1200, "releaseStableTime": 3000, "maskBaseMs": 15, "sensitivity": 100, "curve": 0, "padType": 4, "chokeGroup": 0 },
+    { "sample": "RCRASH.wav", "midiNote": 43, "threshold": 300, "releaseThreshold": 250, "peakTime": 1200, "releaseStableTime": 3000, "maskBaseMs": 15, "sensitivity": 100, "curve": 0, "padType": 4, "chokeGroup": 0 },
+    { "sample": "SPLASH.wav", "midiNote": 49, "threshold": 300, "releaseThreshold": 250, "peakTime": 1200, "releaseStableTime": 3000, "maskBaseMs": 17, "sensitivity": 100, "curve": 0, "padType": 4, "chokeGroup": 0 },
+    { "sample": "RIDE.wav", "midiNote": 51, "threshold": 300, "releaseThreshold": 250, "peakTime": 1200, "releaseStableTime": 3000, "maskBaseMs": 17, "sensitivity": 100, "curve": 0, "padType": 4, "chokeGroup": 0 },
+    { "sample": "BEL.wav", "midiNote": 56, "threshold": 300, "releaseThreshold": 250, "peakTime": 1200, "releaseStableTime": 3000, "maskBaseMs": 15, "sensitivity": 100, "curve": 0, "padType": 6, "chokeGroup": 0 }
+  ]
+}
