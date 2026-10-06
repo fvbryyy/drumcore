@@ -2,10 +2,10 @@
 #include "config.h"
 #include <HardwareSerial.h>
 
-// UART0 is the ONLY ESP8266 hardware UART with RX support
-// (GPIO1=TX, GPIO3=RX). UART1 is TX-only and unused here.
-// No Serial/Serial1 debug output to avoid any conflict with the
-// UART0 link to the ESP32. Status is surfaced via the LCD only.
+// UART0 adalah SATU-SATUNYA UART hardware ESP8266 dengan dukungan RX
+// (GPIO1=TX, GPIO3=RX); UART1 TX-only dan tak dipakai. Tanpa output debug
+// Serial/Serial1 agar tak konflik dengan link UART0 ke ESP32. Status hanya
+// tampil via LCD.
 static HardwareSerial& UART = Serial;   // UART0 -> ESP32 link
 
 // Parser state machine
@@ -27,9 +27,9 @@ static uint32_t lastByteMs = 0;
 static uint8_t frameBuf[UART_FRAME_SIZE];
 static uint8_t frameIdx = 0;
 
-// Response ring buffer (FIFO). Multiple responses (PING, STATUS, KIT_*)
-// can arrive and must not overwrite each other. Each valid frame is queued;
-// uartGetResponse() pops in FIFO order.
+// Ring buffer respons (FIFO): beberapa respons (PING, STATUS, KIT_*) bisa
+// tiba dan tidak boleh saling menimpa. Tiap frame valid di-queue;
+// uartGetResponse() mengambil dalam urutan FIFO.
 static constexpr uint8_t RESP_QUEUE_SIZE = 8;
 static UartResponse respQueue[RESP_QUEUE_SIZE];
 static uint8_t respHead = 0;   // next read index
@@ -131,9 +131,9 @@ static void responsePush(const UartResponse& r)
     }
 }
 
-// Remove the entry at the given absolute ring index (a value previously
-// returned as head+offset). Compacts the ring into a contiguous buffer so
-// head/tail stay simple.
+// Hapus entri pada absolute ring index (nilai yang sebelumnya dikembalikan
+// sebagai head+offset). Ring dipadatkan jadi buffer kontigu agar head/tail
+// tetap sederhana.
 static void responseRemoveAt(uint8_t index)
 {
     static UartResponse tmp[RESP_QUEUE_SIZE];
@@ -178,8 +178,8 @@ static uint8_t calcCRC(
 
 static void processFrame(const uint8_t* frame);   // forward-decl
 
-// Proses frame CMD_KIT_INFO (header + chunk nama). Dipanggil dari
-// processFrame sebelum frame tersebut masuk FIFO respons umum.
+// Proses frame CMD_KIT_INFO (header + chunk nama). Dipanggil dari processFrame
+// sebelum frame masuk FIFO respons umum.
 static void handleKitInfoFrame(
     uint8_t arg0,
     uint8_t arg1,
@@ -305,11 +305,11 @@ static void handleKitInfoFrame(
     }
 }
 
-// Proses frame CMD_PAD_GET (respon). Nilai field 16-bit dikirim sebagai
-// dua frame berurutan: frame lo (ARG2 = field) lalu frame hi (ARG2 =
-// field | 0x80). Dipanggil dari processFrame sebelum frame masuk FIFO
-// respons umum, supaya lalu lintas pad config tidak mengganggu transaksi
-// KIT_*/STATUS yang sedang berjalan.
+// Proses frame CMD_PAD_GET (respons): nilai field 16-bit dikirim sebagai dua
+// frame berurutan — frame lo (ARG2 = field) lalu frame hi (ARG2 = field |
+// 0x80). Dipanggil dari processFrame sebelum frame masuk FIFO respons umum,
+// agar lalu lintas pad config tak mengganggu transaksi KIT_*/STATUS yang
+// berjalan.
 static void handlePadGetFrame(
     uint8_t arg0,   // status
     uint8_t arg1,   // pad
@@ -358,12 +358,11 @@ static void handlePadGetFrame(
     padGetReady = true;
 }
 
-// Proses frame CMD_PAD_SOUND (respon daftar suara, G9). Satu daftar:
-//   header daftar : ARG0=status, ARG1=jumlah suara, ARG2=0xC7
-//   nama-header   : ARG0=index suara, ARG1=panjang nama, ARG2=0
-//   chunk         : ARG0=(chunkIdx|0x80), ARG1..3 = sampai 3 char
-// Dipanggil dari processFrame sebelum frame masuk FIFO respons umum,
-// supaya lalu lintas daftar suara tidak mengganggu transaksi lain.
+// Proses frame CMD_PAD_SOUND (respons daftar suara, G9). Satu daftar: header
+// daftar ARG0=status, ARG1=jumlah suara, ARG2=0xC7; nama-header ARG0=index
+// suara, ARG1=panjang nama, ARG2=0; chunk ARG0=(chunkIdx|0x80), ARG1..3 =
+// sampai 3 char. Dipanggil dari processFrame sebelum frame masuk FIFO respons
+// umum, agar lalu lintas daftar suara tak mengganggu transaksi lain.
 static void handlePadSoundFrame(
     uint8_t arg0,
     uint8_t arg1,
@@ -398,8 +397,8 @@ static void handlePadSoundFrame(
         char* dst = padSoundNames[padSoundIdx];
 
         // Jumlah karakter efektif di chunk ini (1-3, bukan selalu 3).
-        // G20 FIX #2: gunakan sisa karakter nama bukan konstanta 3,
-        // identik dengan pola KIT_INFO (kitInfoGot = pos + validChars).
+        // G20 FIX #2: pakai sisa karakter nama, bukan konstanta 3 — identik
+        // pola KIT_INFO (kitInfoGot = pos + validChars).
         uint8_t validChars = (uint8_t)(padSoundNameLen - pos);
         if (validChars > 3)
         {
@@ -470,9 +469,7 @@ static void handlePadSoundFrame(
         return;
     }
 
-    // ---- Header (bukan chunk) ----
-
-    // Header daftar ditandai ARG2 == 0xC7 (tanda khusus; kontras
+    // ---- Header (bukan chunk): ditandai ARG2 == 0xC7 (tanda khusus; kontras
     // dengan nama-header yang memakai ARG2 = 0).
     if (arg2 == 0xC7)
     {
@@ -494,10 +491,10 @@ static void handlePadSoundFrame(
                           (unsigned)padSoundCurrent);
         }
 
-        // G20 FIX #1: count == 0 berarti daftar kosong — sesi selesai
-        // sekarang, tanpa menunggu nama-header / chunk yang tidak ada.
-        // Tanpa fix ini padSoundPending tetap true dan sistem timeout
-        // 2500ms padahal ESP32 sudah merespons dengan benar.
+        // G20 FIX #1: count == 0 berarti daftar kosong — sesi selesai sekarang
+        // tanpa menunggu nama-header/chunk yang tak ada. Tanpa fix ini
+        // padSoundPending tetap true dan sistem timeout 2500 ms padahal ESP32
+        // sudah merespons dengan benar.
         if (padSoundCount == 0)
         {
             padSoundOk = true;
@@ -583,35 +580,31 @@ static void processFrame(const uint8_t* frame)
         return;
     }
 
-    // Kit-info frames (header + chunk nama) dirakit khusus; tidak
-    // masuk ke FIFO respons umum supaya tidak mengganggu transaksi
-    // KIT_NEXT/PREV/LOAD/SAVE yang sedang berjalan.
+    // Frame kit-info (header + chunk nama) dirakit khusus; tidak masuk FIFO
+    // respons umum agar tak mengganggu transaksi KIT_NEXT/PREV/LOAD/SAVE.
     if (cmd == (CMD_KIT_INFO | UART_RESPONSE_BIT))
     {
         handleKitInfoFrame(arg0, arg1, arg2, arg3, seq);
         return;
     }
 
-    // CMD_PAD_GET respon (nilai field 16-bit, dua frame per nilai)
-    // dirakit khusus di luar FIFO respons umum (lihat handlePadGetFrame).
+    // Respons CMD_PAD_GET (nilai field 16-bit, dua frame per nilai) dirakit khusus di luar FIFO respons umum (lihat handlePadGetFrame).
     if (cmd == (CMD_PAD_GET | UART_RESPONSE_BIT))
     {
         handlePadGetFrame(arg0, arg1, arg2, arg3, seq);
         return;
     }
 
-    // CMD_PAD_SOUND respon (daftar suara kit aktif, G9) dirakit
-    // khusus di luar FIFO respons umum (lihat handlePadSoundFrame).
+    // Respons CMD_PAD_SOUND (daftar suara kit aktif, G9) dirakit khusus di luar FIFO respons umum (lihat handlePadSoundFrame).
     if (cmd == (CMD_PAD_SOUND | UART_RESPONSE_BIT))
     {
         handlePadSoundFrame(arg0, arg1, arg2, arg3, seq);
         return;
     }
 
-    // Response frame: CMD is the request CMD with UART_RESPONSE_BIT set
-    // (e.g. PING 0x01 -> response CMD 0x81).
-    // Field layout (ESP32 sendResponse): SOF, CMD|0x80, ARG0=STATUS,
-    // ARG1=a1, ARG2=a2, ARG3=a3, SEQ, CRC.
+    // Frame respons: CMD = CMD request dengan UART_RESPONSE_BIT (mis. PING
+    // 0x01 -> respons CMD 0x81). Layout field (ESP32 sendResponse): SOF,
+    // CMD|0x80, ARG0=STATUS, ARG1=a1, ARG2=a2, ARG3=a3, SEQ, CRC.
     //   f[2]=status, f[3]=arg0, f[4]=arg1, f[5]=arg2, f[6]=seq, f[1]=cmd.
     UartResponse r;
     r.status = arg0;          // f[2] status
@@ -719,9 +712,9 @@ void uartClientUpdate()
 {
     uint32_t now = millis();
 
-    // Timeout kit-info: header atau chunk tidak kunjung lengkap
-    // (ESP32 sibuk / frame dropped). Paket dibatalkan; UI boleh
-    // meminta ulang tanpa menghasilkan paket ready palsu.
+    // Timeout kit-info: header/chunk tak kunjung lengkap (ESP32 sibuk / frame
+    // dropped). Paket dibatalkan; UI boleh meminta ulang tanpa menghasilkan
+    // paket ready palsu.
     if ((kitInfoPending || (kitInfoOk && !kitInfoReady)) &&
         (now - kitInfoSentMs >= KIT_INFO_TIMEOUT_MS))
     {
@@ -744,9 +737,9 @@ void uartClientUpdate()
         }
     }
 
-    // Timeout pad-get: frame lo/hi tidak kunjung lengkap (ESP32
-    // sibuk / frame dropped). Paket dibatalkan; UI boleh meminta ulang.
-    // uartPadGetGet() lalu mengonsumsi "gagal".
+    // Timeout pad-get: frame lo/hi tak kunjung lengkap (ESP32 sibuk / frame
+    // dropped). Paket dibatalkan; UI boleh meminta ulang. uartPadGetGet()
+    // lalu mengonsumsi "gagal".
     if (padGetPending && (now - padGetSentMs >= PAD_GET_TIMEOUT_MS))
     {
         padGetPending = false;
@@ -754,9 +747,9 @@ void uartClientUpdate()
         padGetReady = true;
     }
 
-    // Timeout pad-sound: daftar suara tidak kunjung lengkap (ESP32
-    // sibuk / frame dropped). Paket dibatalkan; UI boleh meminta ulang.
-    // uartPadSoundGet() lalu mengonsumsi "gagal".
+    // Timeout pad-sound: daftar suara tak kunjung lengkap (ESP32 sibuk / frame
+    // dropped). Paket dibatalkan; UI boleh meminta ulang. uartPadSoundGet()
+    // lalu mengonsumsi "gagal".
     if (padSoundPending && (now - padSoundSentMs >= PAD_SOUND_TIMEOUT_MS))
     {
         padSoundPending = false;
@@ -888,7 +881,7 @@ bool uartRemoveAt(int8_t absIndex, UartResponse& out)
         return false;
     }
     uint8_t idx = (uint8_t)absIndex;
-    // Verify the index is within the valid range of the ring
+    // Verifikasi index dalam rentang valid ring.
     uint8_t check = respHead;
     for (uint8_t n = 0; n < respCount; n++)
     {
@@ -927,9 +920,9 @@ UartPingResult uartPollPing()
         return UartPingResult::FAIL;
     }
 
-    // Scan the queue for a PING response. Command responses (KIT/STATUS...)
-    // are left intact so uartGetResponse() still receives them. Only a PING
-    // response is consumed, and only when its SEQ/STATUS match.
+    // Pindai queue untuk respons PING. Respons command (KIT/STATUS...) dibiarkan
+    // utuh agar uartGetResponse() tetap menerimanya. Hanya respons PING yang
+    // dikonsumsi, dan hanya bila SEQ/STATUS cocok.
     uint8_t index = respHead;
     for (uint8_t n = 0; n < respCount; n++)
     {
@@ -952,14 +945,12 @@ UartPingResult uartPollPing()
     return UartPingResult::NONE;
 }
 
-// ============================================================
-// Kit info (CMD_KIT_INFO)
-// ============================================================
+// ----- Kit info (CMD_KIT_INFO) -----
 
 void uartKitInfoRequest(uint8_t kitIndex)
 {
-    // Selalu kirim request baru (SEQ baru). Header/chunk dari request
-    // lama yang terlambat diabaikan lewat pencocokan SEQ di atas.
+    // Selalu kirim request baru (SEQ baru); header/chunk request lama yang
+    // terlambat diabaikan lewat pencocokan SEQ.
     kitInfoPending = true;
     kitInfoOk = false;
     kitInfoReady = false;
@@ -985,11 +976,10 @@ bool uartKitInfoPending()
     return kitInfoPending;
 }
 
-// G14: sesi KIT_INFO sibuk = header belum (pending) ATAU asembel chunk
-// masih jalan (ok) ATAU paket utuh menunggu dikonsumsi (ready). Guard
-// ini menutup celah "header sudah tiba tapi chunk terpecah drain": dulu
-// request baru bisa lewat saat pending==false && ok==true lalu membuang
-// rakitan yang sedang berjalan.
+// G14: sesi KIT_INFO sibuk = header belum (pending) ATAU asembel chunk masih
+// jalan (ok) ATAU paket utuh menunggu dikonsumsi (ready). Guard ini menutup
+// celah "header sudah tiba tapi chunk terpecah drain": dulu request baru bisa
+// lewat saat pending==false && ok==true lalu membuang rakitan yang berjalan.
 bool uartKitInfoBusy()
 {
     return kitInfoPending || kitInfoOk || kitInfoReady;
@@ -1047,15 +1037,13 @@ bool uartKitInfoGet(
     return true;
 }
 
-// ============================================================
-// Kit rename (CMD_KIT_RENAME)
-// ============================================================
+// ----- Kit rename (CMD_KIT_RENAME) -----
 
-// Kirim header + chunk nama (mekanisme sama utk RENAME, CREATE
-// bernama, dan PAD_SOUND_SET). Semua frame memakai SEQ header
-// supaya respon ESP32 (satu frame status) bisa dicocokkan via
-// uartFindResponse(cmd, seq). maxLen = batas nama request tsb
-// (KIT_NAME_MAX utk rename/create, PAD_SOUND_NAME_MAX utk sample).
+// Kirim header + chunk nama (mekanisme sama untuk RENAME, CREATE bernama, dan
+// PAD_SOUND_SET). Semua frame memakai SEQ header agar respons ESP32 (satu
+// frame status) bisa dicocokkan via uartFindResponse(cmd, seq). maxLen = batas
+// nama request tsb (KIT_NAME_MAX utk rename/create, PAD_SOUND_NAME_MAX utk
+// sample).
 static uint8_t sendNameChunked(
     uint8_t cmd,
     uint32_t headerArg0,
@@ -1107,9 +1095,7 @@ uint8_t uartSendRenameRequest(uint8_t kitIndex, const char* name)
     return sendNameChunked(CMD_KIT_RENAME, kitIndex, name, KIT_NAME_MAX);
 }
 
-// ============================================================
-// Kit create dengan nama (G4)
-// ============================================================
+// ----- Kit create dengan nama (G4) -----
 
 uint8_t uartSendCreateNamedRequest(uint8_t cmd, const char* name)
 {
@@ -1117,13 +1103,11 @@ uint8_t uartSendCreateNamedRequest(uint8_t cmd, const char* name)
     return sendNameChunked(cmd, 0, name, KIT_NAME_MAX);
 }
 
-// ============================================================
-// Pad get (CMD_PAD_GET, G1)
-// ============================================================
+// ----- Pad get (CMD_PAD_GET, G1) -----
 
 uint8_t uartPadGetRequest(uint8_t padIndex, uint8_t fieldId)
 {
-    // Mulai request baru (SEQ baru). Frame respon lama yang terlambat
+    // Mulai request baru (SEQ baru); frame respons lama yang terlambat
     // diabaikan lewat pencocokan SEQ di handlePadGetFrame.
     padGetPending = true;
     padGetHaveLo = false;
@@ -1169,9 +1153,7 @@ bool uartPadGetGet(
     return true;
 }
 
-// ============================================================
-// Pad set (CMD_PAD_SET)
-// ============================================================
+// ----- Pad set (CMD_PAD_SET) -----
 
 uint8_t uartPadSetRequest(
     uint8_t padIndex,
@@ -1186,13 +1168,11 @@ uint8_t uartPadSetRequest(
         (uint8_t)(value >> 8));
 }
 
-// ============================================================
-// Pad sound list (CMD_PAD_SOUND, G9)
-// ============================================================
+// ----- Pad sound list (CMD_PAD_SOUND, G9) -----
 
 uint8_t uartPadSoundRequest(uint8_t padIndex)
 {
-    // Mulai request baru (SEQ baru). Frame respon lama yang terlambat
+    // Mulai request baru (SEQ baru); frame respons lama yang terlambat
     // diabaikan lewat pencocokan SEQ di handlePadSoundFrame.
     padSoundPending = true;
     padSoundHasName = false;
@@ -1249,9 +1229,7 @@ bool uartPadSoundGet(
     return true;
 }
 
-// ============================================================
-// Pad sound set (CMD_PAD_SOUND_SET)
-// ============================================================
+// ----- Pad sound set (CMD_PAD_SOUND_SET) -----
 
 uint8_t uartPadSoundSetRequest(uint8_t padIndex, const char* name)
 {

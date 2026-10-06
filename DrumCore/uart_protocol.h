@@ -22,7 +22,6 @@
 //   [6] SEQ
 //   [7] CRC       = XOR(CMD,ARG0..ARG3,SEQ)
 //
-// CRC: checksum 8-bit XOR dari byte 1..6.
 // Parser state-machine, tanpa String / dynamic allocation.
 
 // ======================================================
@@ -106,17 +105,14 @@ constexpr uint8_t STATUS_INVALID_VALUE   = 0x03;
 constexpr uint8_t STATUS_INVALID_KIT     = 0x04;
 constexpr uint8_t STATUS_BUSY            = 0x05;
 constexpr uint8_t STATUS_CRC_ERROR       = 0x06;
-    constexpr uint8_t STATUS_NAME_EXISTS     = 0x07;
-    // G24.15: value BARU di field status yang sudah ada. Frame,
-    // panjang frame, SOF, CRC, SEQ, dan daftar command TIDAK
-    // berubah — hanya satu arti tambahan pada ARG0 respons, supaya
-    // "semua slot kituser terisi" tidak lagi dilaptop jadi BUSY.
-    constexpr uint8_t STATUS_NO_SPACE        = 0x08;
+constexpr uint8_t STATUS_NAME_EXISTS     = 0x07;
+// G24.15: arti BARU di ARG0 respons (frame/CRC/SEQ tidak berubah),
+// supaya "semua slot user terisi" tidak lagi dilaporkan sebagai BUSY.
+constexpr uint8_t STATUS_NO_SPACE        = 0x08;
 
 // ---- Pad field IDs (CMD_PAD_SET / CMD_PAD_GET) ----
-// SUMBER KEBENARAN: config.h (FIELD_MIDI_NOTE..FIELD_COUNT) bersama
-// PAD_FIELD_MIN/MAX. Jangan definisi ulang di sini — cukup pakai
-// yang dari config.h.
+// SUMBER KEBENARAN: config.h (FIELD_MIDI_NOTE..FIELD_COUNT,
+// PAD_FIELD_MIN/MAX). Jangan definisi ulang di sini.
 // Documented set (salinan klien Wemos: DrumCore_UI/uart_client.h):
 //   FIELD_MIDI_NOTE    = 0
 //   FIELD_THRESHOLD    = 1
@@ -135,9 +131,9 @@ constexpr uint8_t STATUS_CRC_ERROR       = 0x06;
 // Public API
 // ======================================================
 
-// Inisialisasi UART1 + parser. Panggil SETELAH persistence/
-// kit ini (perlu currentActiveKit/volume awal). Sebelum
-// uartTaskStart(). Non-blocking.
+// Inisialisasi UART1 + parser (non-blocking). Panggil SETELAH
+// persistence/kit init (butuh activeKit/volume awal), SEBELUM
+// uartTaskStart().
 void uartProtocolInit(
     uint8_t activeKit,
     uint8_t volume
@@ -146,10 +142,10 @@ void uartProtocolInit(
 // Mulai FreeRTOS UART task (control plane, Core 1, prio rendah).
 void uartTaskStart();
 
-// Jalankan kit-switch penuh yang aman (gate hit -> tunggu voice
-// -> JSON/PSRAM -> rollback) LALU update uartActiveKit. Public
-// supaya dipakai kit_manager (LOAD / DELETE fallback). Status =
-// STATUS_OK / STATUS_BUSY / STATUS_INVALID_KIT.
+// Kit-switch penuh yang aman (gate hit -> tunggu voice -> JSON/PSRAM
+// -> rollback), lalu update uartActiveKit. Dipakai kit_manager
+// (LOAD / DELETE fallback). Status = STATUS_OK / STATUS_BUSY /
+// STATUS_INVALID_KIT.
 uint8_t uartPerformKitSwitch(
     uint8_t newKit
 );

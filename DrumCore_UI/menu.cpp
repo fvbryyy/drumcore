@@ -1,13 +1,9 @@
 #include "menu.h"
 
-// ------------------------------------------------------------
-// Top-level menu
-//
-// G24: hanya KIT dan PAD. EXTERNAL dan SYSTEM dibuang karena tidak
-// punya backend/command nyata — prinsip "menu tampil = fungsi
-// bekerja". Backend ESP32 (CMD_GLOBAL_SAVE, dll) TIDAK ikut dihapus;
-// hanya eksposinya di UI yang hilang.
-// ------------------------------------------------------------
+// Top-level menu. G24: hanya KIT dan PAD; EXTERNAL dan SYSTEM dibuang karena
+// tak punya backend/command nyata (prinsip "menu tampil = fungsi bekerja").
+// Backend ESP32 (CMD_GLOBAL_SAVE, dll) TIDAK ikut dihapus — hanya eksposinya
+// di UI yang hilang.
 
 static const char* topLabels[] =
 {
@@ -18,9 +14,7 @@ static const char* topLabels[] =
 static constexpr uint8_t TOP_COUNT =
     sizeof(topLabels) / sizeof(topLabels[0]);
 
-// ------------------------------------------------------------
 // PAD browser
-// ------------------------------------------------------------
 
 static constexpr uint8_t PAD_COUNT = 12;
 
@@ -29,12 +23,11 @@ static constexpr uint8_t PAD_COUNT = 12;
 // ------------------------------------------------------------
 
 /*
- * PAD edit list (per-pad parameter groups) — G9: semua entri MENJADI
- * fungsional. SOUND = daftar WAV kit aktif (scan folder samples;
- * pilih = PAD_SOUND_SET assign by filename), MAPPING =
- * MIDI NOTE, TRIGGER = lima field trigger yang terbukti efektif
- * runtime (G8). CHOKE / SENSITIVITY / CURVE / PAD TYPE tidak
- * diekspos (metadata-only, dan dilarang sebagai UI fungsional).
+ * PAD edit list — G9: semua entri fungsional. SOUND = daftar WAV kit aktif
+ * (scan folder samples; pilih = PAD_SOUND_SET assign by filename),
+ * MAPPING = MIDI NOTE, TRIGGER = lima field trigger yang terbukti efektif
+ * runtime (G8). CHOKE / SENSITIVITY / CURVE / PAD TYPE tidak diekspos
+ * (metadata-only, dan dilarang sebagai UI fungsional).
  */
 static const char* padEditLabels[] =
 {
@@ -50,14 +43,10 @@ static constexpr uint8_t PAD_EDIT_COUNT =
 static constexpr uint8_t PAD_EDIT_BACK_INDEX =
     PAD_EDIT_COUNT - 1;
 
-// ------------------------------------------------------------
-// Kit action menu (actions shown after entering KIT)
-//
-// G24: urutan mengikuti hierarchy final — LOAD / CREATE / RENAME /
-// DELETE / SAVE. Semua lima punya command + respons backend nyata.
-// SAVE berada di akhir karena ia memakai kit AKTIF, bukan hasil
-// browser, jadi tidak/grouping bersama LOAD/CREATE/RENAME/DELETE.
-// ------------------------------------------------------------
+// Kit action menu (aksi setelah masuk KIT). G24: urutan mengikuti hierarki
+// final — LOAD / CREATE / RENAME / DELETE / SAVE; kelimanya punya command +
+// respons backend nyata. SAVE di akhir karena memakai kit AKTIF, bukan hasil
+// browser.
 
 static const char* kitSubLabels[] =
 {
@@ -75,9 +64,7 @@ static constexpr uint8_t KIT_SUB_COUNT =
 static constexpr uint8_t KIT_SUB_BACK_INDEX =
     KIT_SUB_COUNT - 1;
 
-// ------------------------------------------------------------
 // Kit CREATE sub-menu (CREATE -> EMPTY / COPY CURRENT / BACK)
-// ------------------------------------------------------------
 
 static const char* kitCreateLabels[] =
 {
@@ -92,14 +79,11 @@ static constexpr uint8_t KIT_CREATE_COUNT =
 static constexpr uint8_t KIT_CREATE_BACK_INDEX =
     KIT_CREATE_COUNT - 1;
 
-// ------------------------------------------------------------
-// Generic sub-lists (PAD MAPPING / PAD TRIGGER) — navigable label
-// list terminated by BACK.
-// ------------------------------------------------------------
+// Generic sub-lists (PAD MAPPING / PAD TRIGGER): list label navigasi yang diakhiri BACK.
 
 /*
- * MAPPING: hanya MIDI NOTE yang fungsional runtime (G8). SAMPLE
- * diekspos lewat SOUND (menu PAD_EDIT); FUNCTION tidak ada di backend.
+ * MAPPING: hanya MIDI NOTE yang fungsional runtime (G8). SAMPLE diekspos
+ * lewat SOUND (menu PAD_EDIT); FUNCTION tidak ada di backend.
  */
 static const char* padMappingLabels[] =
 {
@@ -108,10 +92,9 @@ static const char* padMappingLabels[] =
 };
 
 /*
- * TRIGGER: hanya field yang terbukti runtime-effective (G8). Release
- * dibatasi < threshold oleh backend (editor menghindarkan kombinasi
- * mustahil). SENSITIVITY / CURVE / PAD TYPE / CHOKE = metadata-only
- * -> TIDAK tampil.
+ * TRIGGER: hanya field yang terbukti efektif runtime (G8). Release dibatasi
+ * < threshold oleh backend (editor menghindarkan kombinasi mustahil).
+ * SENSITIVITY / CURVE / PAD TYPE / CHOKE = metadata-only -> TIDAK tampil.
  */
 static const char* padTriggerLabels[] =
 {
@@ -202,9 +185,7 @@ uint8_t menuSubListGetBackIndex(uint8_t listId)
     return 0;
 }
 
-// ------------------------------------------------------------
 // Cursor state
-// ------------------------------------------------------------
 
 static uint8_t topIndex = 0;
 static uint8_t padIndex = 0;
@@ -226,9 +207,7 @@ void menuReset()
     kitCreateIndex = 0;
 }
 
-// ------------------------------------------------------------
 // Top-level menu
-// ------------------------------------------------------------
 
 void menuNavTop(int8_t delta)
 {
@@ -261,9 +240,7 @@ const char* menuGetTopLabel(uint8_t index)
     return "";
 }
 
-// ------------------------------------------------------------
 // PAD browser
-// ------------------------------------------------------------
 
 void menuNavPad(int8_t delta)
 {
@@ -287,9 +264,7 @@ uint8_t menuGetPadCount()
     return PAD_COUNT;
 }
 
-// ------------------------------------------------------------
 // PAD edit list
-// ------------------------------------------------------------
 
 void menuNavPadEdit(int8_t delta)
 {
@@ -334,9 +309,7 @@ void menuPadEditReset()
     padEditIndex = 0;
 }
 
-// ------------------------------------------------------------
 // Kit action menu
-// ------------------------------------------------------------
 
 void menuKitSubReset()
 {
@@ -381,9 +354,7 @@ uint8_t menuKitSubGetBackIndex()
     return KIT_SUB_BACK_INDEX;
 }
 
-// ------------------------------------------------------------
 // Kit CREATE sub-menu
-// ------------------------------------------------------------
 
 void menuKitCreateReset()
 {

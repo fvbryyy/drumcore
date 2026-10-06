@@ -14,9 +14,8 @@
 
 namespace
 {
-    // Path sample tiap slot yang sudah tervalidasi.
-    // Ini yang dipakai setup() untuk memanggil psramLoadKit
-    // (karena audio engine memetakan padIndex -> slot PSRAM).
+    // Path sample tiap slot yang sudah tervalidasi — dipakai setup()
+    // untuk psramLoadKit (audio engine memetakan padIndex -> slot PSRAM).
     const char *resolvedPaths[PAD_COUNT] = {};
 
     uint32_t kitId = 0xFFFFFFFF;
@@ -24,10 +23,9 @@ namespace
     char kitName[KIT_NAME_STORAGE] = "/none";
     bool kitNameValid = false;
 
-    // Index kit yang sedang dimuat. Dipakai untuk membentuk
-    // prefix path sample: /kits/kitNN/samples/<file>.
-    // Digeser oleh kitLoaderBuildPath() (dipanggil setup() dan
-    // UART kit-switch tepat sebelum kitLoaderLoad()).
+    // Index kit yang sedang dimuat — dipakai membentuk prefix path
+    // sample: /kits/kitNN/samples/<file>. Digeser oleh
+    // kitLoaderBuildPath() tepat sebelum kitLoaderLoad().
     uint8_t activeKitIndex = 0;
 
     bool isActiveKitIndex(uint8_t kitIndex)
@@ -35,20 +33,19 @@ namespace
         return kitIndex == activeKitIndex;
     }
 
-    // Buffer path sample absolut TERVALIDASI per pad (tahan
-    // hidup sepanjang kit aktif; diamankan per-pad supaya
-    // kit switching tidak memakai String yang dibuang ulang).
-    // G2: folder kit bisa berisi nama (maks KIT_NAME_MAX), jadi
-    // path absolut bisa mencapai dir(40)+"/samples/"(9)+nama(32).
+    // Buffer path sample absolut TERVALIDASI per pad (hidup sepanjang
+    // kit aktif; per-pad supaya kit switching tidak memakai String).
+    // G2: folder kit bisa bernama (maks KIT_NAME_MAX), jadi path
+    // absolut bisa mencapai dir(40)+"/samples/"(9)+nama(32).
     char resolvedBuf[PAD_COUNT][KIT_SAMPLE_PATH_LEN] = {};
 
     // Contoh prefix: "/kits/kit00/samples/"
     char kitSampleDir[KIT_SAMPLE_PATH_LEN] = "/kits/kit00/samples/";
 
-    // Path "unassigned": pad tanpa sample (senyap) — mapping by
-    // filename, JANGAN fallback ke path root config.h yang tidak
-    // ada di SD. Dipakai resolvedPaths[] saat pad tidak punya
-    // sample valid di folder kit.
+    // Path "unassigned": pad tanpa sample (senyap). Mapping by
+    // filename — JANGAN fallback ke path root config.h yang tidak
+    // ada di SD. Dipakai resolvedPaths[] saat pad tak punya sample
+    // valid di folder kit.
     const char emptyPath[] = "";
 
     void setUnassigned(uint8_t i)
@@ -62,8 +59,8 @@ namespace
     // ==================================================
     //
     // Cegah path-traversal / absolute-path injection dari JSON.
-    // Tolak: '/', '\\', "..", dan nama kosong/terlalu panjang.
-    // Hanya menerima nama file sederhana: "kick.wav".
+    // Tolak '/', '\\', "..", nama kosong/terlalu panjang. Hanya
+    // nama file sederhana: "kick.wav".
 
     bool isValidSampleName(const char *name)
     {
@@ -86,8 +83,7 @@ namespace
             }
         }
 
-        // Tolak nama ".." persis (tanpa separator pun berbahaya
-        // sebagai nama tidak valid).
+        // Tolak nama ".." persis (berbahaya walau tanpa separator).
         if (n == 2 && name[0] == '.' && name[1] == '.')
         {
             return false;
@@ -177,10 +173,9 @@ namespace
         const JsonObject &obj
     )
     {
-        // Tulis ke KEDUA layer: config layer + runtime copy.
-        // (padInit() sudah jalan lebih dulu jadi runtime
-        //  `pad.config` perlu di-sinkronkan supaya kit
-        //  override benar-benar dipakai engine.)
+        // Tulis ke KEDUA layer: config layer + runtime copy
+        // (padInit() sudah jalan duluan, jadi `pad.config` perlu
+        // disinkronkan supaya override kit dipakai engine).
         PadConfig &cfg = getPadConfigMutable(padIndex);
         PadConfig &run = pads[padIndex].config;
 
@@ -306,10 +301,9 @@ namespace
             run.chokeGroup = u8;
         }
 
-        // sampleId (0..PAD_COUNT-1) — metadata per-pad
-        // Menentukan physical PSRAM slot (dalam urutan file WAV
-        // yang dimuat) yang dipakai saat pad ini dipukul.
-        // Jika absen/tidak valid → default = padIndex (backward-compat).
+        // sampleId (0..PAD_COUNT-1): physical PSRAM slot yang dipakai
+        // saat pad ini dipukul. Absen/tidak valid -> default = padIndex
+        // (backward-compat).
         if (readU8(
                 obj["sampleId"],
                 (uint8_t)PAD_FIELD_MIN[FIELD_SAMPLE_ID],
@@ -325,14 +319,13 @@ namespace
     // Read Kit Meta (name + kitId) — preview-only
     // ==================================================
     //
-    // Baca metadata dari SATU file kit.json TANPA mengubah state
-    // global loader (activeKitIndex / kitSampleDir / cache). Dipakai
-    // oleh kitLoaderGetName()/kitLoaderGetKitId() untuk permintaan
-    // nama/ID kit preview dari Wemos (UART control plane).
+    // Baca metadata SATU file kit.json TANPA mengubah state global
+    // loader. Dipakai kitLoaderGetName()/kitLoaderGetKitId() untuk
+    // permintaan nama/ID kit preview dari Wemos (UART control plane).
     //
     // Fallback: name="UNNAMED", idOut=fallbackId bila file/field
-    // tidak ada. return false HANYA jika file tidak terbuka atau
-    // parse JSON gagal (caller harus pakai fallback-nya sendiri).
+    // tidak ada. return false HANYA bila file tak terbuka / parse
+    // JSON gagal (caller pakai fallback-nya sendiri).
 
     bool readKitMeta(
         const char *path,
@@ -400,7 +393,6 @@ namespace
             );
         }
 
-
         return true;
     }
 
@@ -409,11 +401,11 @@ namespace
     // ==================================================
     //
     // Source of truth MAPPING = nama file ("sample" di kit.json /
-    // PAD_SOUND_SET RAM). Kalau nama valid & file ADA di folder
-    // samples kit aktif, dipakai. Kalau kosong/tidak valid/file
-    // hilang -> UNASSIGNED (pad senyap, "sample":""). Tidak ada
-    // fallback ke path root config.h: root path bukan bagian dari
-    // SD kit dan tidak boleh menjadi mapping.
+    // PAD_SOUND_SET RAM). Nama valid & file ADA di folder samples
+    // kit aktif -> dipakai; kosong/tidak valid/file hilang ->
+    // UNASSIGNED (pad senyap, "sample":""). TIDAK ada fallback ke
+    // path root config.h: root path bukan bagian SD kit dan tidak
+    // boleh menjadi mapping.
 
     void resolveSamples(
         const JsonArray &padsArr,
@@ -502,8 +494,8 @@ bool kitLoaderLoad(
     kitIdValid = false;
     kitNameValid = false;
 
-    // G11: nama default netral "UNNAMED" (bukan "KIT %02u") —
-    // nama slot TIDAK boleh tampil di LCD (UI name-based).
+    // G11: nama default netral "UNNAMED" — nomor slot TIDAK boleh
+    // tampil di LCD (UI name-based).
     snprintf(
         kitName,
         sizeof(kitName),
@@ -517,11 +509,10 @@ bool kitLoaderLoad(
     }
 
     // ----- Baca file JSON dari SD -----
-    // Format FINAL: /kits/kitNN/kit.json
-    // Legacy fallback: /kits/kitNN.json (format lama, 6A-6C).
-    // Legacy tetap memuat PadConfig; sample akan dicari di
-    // folder samples/ kit baru dan fallback default bila
-    // file belum dimigrasi. Tidak pernah crash.
+    // Format FINAL: /kits/kitNN/kit.json.
+    // Legacy fallback: /kits/kitNN.json (format lama, 6A-6C) —
+    // tetap memuat PadConfig; sample dicari di folder samples/
+    // kit baru. Tidak pernah crash.
     File f = SD.open(path, FILE_READ);
 
     if (!f)
@@ -557,20 +548,18 @@ bool kitLoaderLoad(
         return true;  // aman, default
     }
 
-    // Skip UTF-8 BOM (EF BB BF) if present.
-    // ArduinoJson does not handle BOM; skip it to avoid
-    // InvalidInput on BOM-bearing files from Windows editors.
+    // Skip UTF-8 BOM (EF BB BF) bila ada — ArduinoJson tidak
+    // menanganinya (hindari InvalidInput dari file editor Windows).
     uint8_t peek[3];
     size_t peekN = f.read(peek, 3);
     if (peekN < 3 ||
         peek[0] != 0xEF || peek[1] != 0xBB || peek[2] != 0xBF)
     {
-        // No BOM: rewind to start.
-        f.seek(0);
+        f.seek(0);   // tanpa BOM: rewind ke awal
     }
-    // else: BOM consumed, file position is after BOM.
+    // else: BOM sudah terkonsumsi, posisi setelah BOM.
 
-    // Alokasi dokumen JSON. Idle kit JSON kecil.
+    // Dokumen JSON (kit JSON kecil).
     JsonDocument doc;
     DeserializationError err = deserializeJson(doc, f);
     f.close();
@@ -591,7 +580,7 @@ bool kitLoaderLoad(
 
     // ----- Parse metadata kit -----
     // kitId = identitas internal (TASK 1). Field baru diutamakan;
-    // legacy "id" tetap didukung supaya kit lama tetap kompatibel.
+    // legacy "id" tetap didukung (kit lama kompatibel).
     if (doc["kitId"].is<unsigned long>())
     {
         kitId = (uint32_t)doc["kitId"].as<unsigned long>();
@@ -611,8 +600,7 @@ bool kitLoaderLoad(
     }
     else
     {
-        // G11: nama fallback netral "UNNAMED" (UI Wemos wajib
-        // name-based), bukan index aktif ("KIT %02u").
+        // G11: fallback netral "UNNAMED" (UI Wemos wajib name-based).
         snprintf(
             kitName,
             sizeof(kitName),
@@ -905,213 +893,213 @@ uint8_t kitLoaderResolvedSampleId(uint8_t padIndex)
 // ======================================================
 //
 // Satu-satunya sumber kebenaran identitas kit = field "kitId"
-// (legacy "id") di kit.json. Folder bisa berada di mana saja
-// di /kits/ (nama folder == nama kit setelah RENAME), jadi
-// query index -> direktori dilakukan via SCAN, bukan pola
-// index. Fallback legacy /kits/kitNN/ tetap didukung.
+// (legacy "id") di kit.json. Folder bisa di mana saja di /kits/
+// (nama folder == nama kit setelah RENAME), jadi query index ->
+// direktori via SCAN, bukan pola index. Fallback legacy
+// /kits/kitNN/ tetap didukung.
 
-    static bool resolveKitDirWithMeta(
-        uint8_t slot,
-        char *out,
-        size_t outLen,
-        char *nameOut,
-        size_t nameCap,
-        uint32_t *idOut
-    )
+static bool resolveKitDirWithMeta(
+    uint8_t slot,
+    char *out,
+    size_t outLen,
+    char *nameOut,
+    size_t nameCap,
+    uint32_t *idOut
+)
+{
+    if (!out || outLen == 0 || slot >= KIT_COUNT)
     {
-        if (!out || outLen == 0 || slot >= KIT_COUNT)
-        {
-            return false;
-        }
+        return false;
+    }
 
-        out[0] = '\0';
+    out[0] = '\0';
+
+    if (nameOut && nameCap > 0)
+    {
+        nameOut[0] = '\0';
+    }
+
+    if (idOut)
+    {
+        *idOut = slot;
+    }
+
+    char canonical[KIT_DIR_LEN] = {0};
+    char any[KIT_DIR_LEN] = {0};
+    char canonicalName[KIT_NAME_STORAGE] = {0};
+    char anyName[KIT_NAME_STORAGE] = {0};
+    uint32_t canonicalId = slot;
+    uint32_t anyId = slot;
+
+    File root = SD.open("/kits");
+
+    if (root && root.isDirectory())
+    {
+        while (File entry = root.openNextFile())
+        {
+            const char *pathPtr = entry.path();
+            const bool isDir = entry.isDirectory();
+            char path[KIT_DIR_LEN] = {0};
+            char base[KIT_NAME_STORAGE] = {0};
+
+            if (pathPtr)
+            {
+                snprintf(path, sizeof(path), "%s", pathPtr);
+
+                size_t pathLen = strlen(path);
+                while (pathLen > 1 && path[pathLen - 1] == '/')
+                {
+                    path[--pathLen] = '\0';
+                }
+
+                const char *basePtr = strrchr(path, '/');
+                basePtr = basePtr ? basePtr + 1 : path;
+                snprintf(base, sizeof(base), "%s", basePtr);
+            }
+
+            entry.close();
+
+            if (!isDir || path[0] == '\0')
+            {
+                continue;
+            }
+
+            char metaPath[KIT_PATH_LEN];
+            snprintf(
+                metaPath,
+                sizeof(metaPath),
+                "%s/kit.json",
+                path
+            );
+
+            char metaName[KIT_NAME_STORAGE] = {0};
+            uint32_t metaId = slot;
+
+            if (readKitMeta(
+                    metaPath,
+                    slot,
+                    metaName,
+                    sizeof(metaName),
+                    metaId
+                ) && metaId == slot)
+            {
+                if (canonical[0] == '\0' &&
+                    base[0] != '\0' &&
+                    strcmp(metaName, base) == 0)
+                {
+                    snprintf(canonical, sizeof(canonical), "%s", path);
+                    snprintf(
+                        canonicalName,
+                        sizeof(canonicalName),
+                        "%s",
+                        metaName
+                    );
+                    canonicalId = metaId;
+                }
+
+                if (any[0] == '\0')
+                {
+                    snprintf(any, sizeof(any), "%s", path);
+                    snprintf(anyName, sizeof(anyName), "%s", metaName);
+                    anyId = metaId;
+                }
+            }
+        }
+    }
+
+    if (root)
+    {
+        root.close();
+    }
+
+    const char *selected = canonical[0] != '\0'
+        ? canonical
+        : (any[0] != '\0' ? any : nullptr);
+    const char *selectedName = canonical[0] != '\0'
+        ? canonicalName
+        : anyName;
+    const uint32_t selectedId = canonical[0] != '\0'
+        ? canonicalId
+        : anyId;
+
+    if (selected)
+    {
+        snprintf(out, outLen, "%s", selected);
 
         if (nameOut && nameCap > 0)
         {
-            nameOut[0] = '\0';
+            snprintf(nameOut, nameCap, "%s", selectedName);
         }
 
         if (idOut)
         {
-            *idOut = slot;
-        }
-
-        char canonical[KIT_DIR_LEN] = {0};
-        char any[KIT_DIR_LEN] = {0};
-        char canonicalName[KIT_NAME_STORAGE] = {0};
-        char anyName[KIT_NAME_STORAGE] = {0};
-        uint32_t canonicalId = slot;
-        uint32_t anyId = slot;
-
-        File root = SD.open("/kits");
-
-        if (root && root.isDirectory())
-        {
-            while (File entry = root.openNextFile())
-            {
-                const char *pathPtr = entry.path();
-                const bool isDir = entry.isDirectory();
-                char path[KIT_DIR_LEN] = {0};
-                char base[KIT_NAME_STORAGE] = {0};
-
-                if (pathPtr)
-                {
-                    snprintf(path, sizeof(path), "%s", pathPtr);
-
-                    size_t pathLen = strlen(path);
-                    while (pathLen > 1 && path[pathLen - 1] == '/')
-                    {
-                        path[--pathLen] = '\0';
-                    }
-
-                    const char *basePtr = strrchr(path, '/');
-                    basePtr = basePtr ? basePtr + 1 : path;
-                    snprintf(base, sizeof(base), "%s", basePtr);
-                }
-
-                entry.close();
-
-                if (!isDir || path[0] == '\0')
-                {
-                    continue;
-                }
-
-                char metaPath[KIT_PATH_LEN];
-                snprintf(
-                    metaPath,
-                    sizeof(metaPath),
-                    "%s/kit.json",
-                    path
-                );
-
-                char metaName[KIT_NAME_STORAGE] = {0};
-                uint32_t metaId = slot;
-
-                if (readKitMeta(
-                        metaPath,
-                        slot,
-                        metaName,
-                        sizeof(metaName),
-                        metaId
-                    ) && metaId == slot)
-                {
-                    if (canonical[0] == '\0' &&
-                        base[0] != '\0' &&
-                        strcmp(metaName, base) == 0)
-                    {
-                        snprintf(canonical, sizeof(canonical), "%s", path);
-                        snprintf(
-                            canonicalName,
-                            sizeof(canonicalName),
-                            "%s",
-                            metaName
-                        );
-                        canonicalId = metaId;
-                    }
-
-                    if (any[0] == '\0')
-                    {
-                        snprintf(any, sizeof(any), "%s", path);
-                        snprintf(anyName, sizeof(anyName), "%s", metaName);
-                        anyId = metaId;
-                    }
-                }
-            }
-        }
-
-        if (root)
-        {
-            root.close();
-        }
-
-        const char *selected = canonical[0] != '\0'
-            ? canonical
-            : (any[0] != '\0' ? any : nullptr);
-        const char *selectedName = canonical[0] != '\0'
-            ? canonicalName
-            : anyName;
-        const uint32_t selectedId = canonical[0] != '\0'
-            ? canonicalId
-            : anyId;
-
-        if (selected)
-        {
-            snprintf(out, outLen, "%s", selected);
-
-            if (nameOut && nameCap > 0)
-            {
-                snprintf(nameOut, nameCap, "%s", selectedName);
-            }
-
-            if (idOut)
-            {
-                *idOut = selectedId;
-            }
-
-            return true;
-        }
-
-        char legacyDir[KIT_DIR_LEN];
-        snprintf(
-            legacyDir,
-            sizeof(legacyDir),
-            "/kits/kit%02u",
-            (unsigned)slot
-        );
-
-        char legacyJson[KIT_PATH_LEN];
-        snprintf(
-            legacyJson,
-            sizeof(legacyJson),
-            "%s/kit.json",
-            legacyDir
-        );
-
-        File legacyFile = SD.open(legacyJson, FILE_READ);
-
-        if (!legacyFile)
-        {
-            return false;
-        }
-
-        legacyFile.close();
-
-        snprintf(out, outLen, "%s", legacyDir);
-
-        if (nameOut && nameCap > 0)
-        {
-            uint32_t legacyId = slot;
-            if (!readKitMeta(
-                    legacyJson,
-                    slot,
-                    nameOut,
-                    nameCap,
-                    legacyId
-                ))
-            {
-                snprintf(nameOut, nameCap, "UNNAMED");
-            }
-
-            if (idOut)
-            {
-                *idOut = legacyId;
-            }
+            *idOut = selectedId;
         }
 
         return true;
     }
 
-    bool kitLoaderResolveKitDir(uint8_t slot, char *out, size_t len)
+    char legacyDir[KIT_DIR_LEN];
+    snprintf(
+        legacyDir,
+        sizeof(legacyDir),
+        "/kits/kit%02u",
+        (unsigned)slot
+    );
+
+    char legacyJson[KIT_PATH_LEN];
+    snprintf(
+        legacyJson,
+        sizeof(legacyJson),
+        "%s/kit.json",
+        legacyDir
+    );
+
+    File legacyFile = SD.open(legacyJson, FILE_READ);
+
+    if (!legacyFile)
     {
-        return resolveKitDirWithMeta(
-            slot,
-            out,
-            len,
-            nullptr,
-            0,
-            nullptr
-        );
+        return false;
     }
+
+    legacyFile.close();
+
+    snprintf(out, outLen, "%s", legacyDir);
+
+    if (nameOut && nameCap > 0)
+    {
+        uint32_t legacyId = slot;
+        if (!readKitMeta(
+                legacyJson,
+                slot,
+                nameOut,
+                nameCap,
+                legacyId
+            ))
+        {
+            snprintf(nameOut, nameCap, "UNNAMED");
+        }
+
+        if (idOut)
+        {
+            *idOut = legacyId;
+        }
+    }
+
+    return true;
+}
+
+bool kitLoaderResolveKitDir(uint8_t slot, char *out, size_t len)
+{
+    return resolveKitDirWithMeta(
+        slot,
+        out,
+        len,
+        nullptr,
+        0,
+        nullptr
+    );
+}
 
 // ======================================================
 // Public: Build Kit JSON Path
@@ -1123,8 +1111,8 @@ void kitLoaderBuildPath(
     size_t len
 )
 {
-    // Format FINAL (6D) + G2: "<resolved-dir>/kit.json". Resolve
-    // name-based dulu; fallback legacy "/kits/kit%02u/kit.json".
+    // Format FINAL (6D) + G2: "<resolved-dir>/kit.json" — resolve
+    // name-based dulu, fallback legacy "/kits/kit%02u/kit.json".
     char dir[KIT_DIR_LEN];
 
     if (!kitLoaderResolveKitDir(kitIndex, dir, sizeof(dir)))
@@ -1134,9 +1122,9 @@ void kitLoaderBuildPath(
 
     snprintf(out, len, "%s/kit.json", dir);
 
-    // Simpan index aktif + prefix direktori sample kit.
-    // Dipakai resolveSamples() agar sample diambil dari
-    // folder kit yang sedang dimuat (bukan folder lain).
+    // Simpan index aktif + prefix direktori sample kit, supaya
+    // resolveSamples() mengambil sample dari folder kit yang
+    // sedang dimuat (bukan folder lain).
     activeKitIndex = kitIndex;
     kitIdValid = false;
     kitNameValid = false;
@@ -1172,10 +1160,10 @@ void kitLoaderBuildKitDir(
 // Public: Retarget Active Sample Prefix (G2)
 // ======================================================
 //
-// Setelah folder kit AKTIF dipindah (RENAME / CREATE overwrite
-// yang pindah lokasi), arahkan ulang kitSampleDir + resolvedBuf
-// ke folder baru supaya path sample tetap valid untuk CREATE
-// COPY / snapshot — tanpa menyentuh PadConfig atau PSRAM.
+// Setelah folder kit AKTIF dipindah (RENAME / CREATE overwrite),
+// arahkan ulang kitSampleDir + resolvedBuf ke folder baru supaya
+// path sample tetap valid untuk CREATE COPY / snapshot — tanpa
+// menyentuh PadConfig atau PSRAM.
 
 void kitLoaderRetargetSampleDir(
     const char *newDir
@@ -1245,10 +1233,10 @@ void kitLoaderSetCachedName(
 // ======================================================
 //
 // Nama kit untuk index tertentu tanpa mengubah state loader.
-// Index aktif memakai cache (tanpa baca SD); index lain dibaca
-// dari lokasi yang di-resolve (name-based G2, fallback legacy
-// kitNN). Fallback netral "UNNAMED" selalu tersedia (G11: nomor
-// slot tidak boleh bocor ke LCD).
+// Index aktif dari cache (tanpa baca SD); index lain dibaca dari
+// lokasi ter-resolve (name-based G2, fallback legacy kitNN).
+// Fallback netral "UNNAMED" selalu tersedia (G11: nomor slot
+// tidak boleh bocor ke LCD).
 
 bool kitLoaderGetKitInfo(
     uint8_t kitIndex,
@@ -1277,8 +1265,8 @@ bool kitLoaderGetKitInfo(
         return false;
     }
 
-    // Cache hit: kit aktif sudah punya nama valid di RAM.
-    // Tidak perlu SD — aman meski SD sedang tidak ready.
+    // Cache hit: kit aktif sudah punya nama valid di RAM (tanpa SD —
+    // aman meski SD tidak ready).
     if (isActiveKitIndex(kitIndex) && kitIdValid && kitNameValid)
     {
         strncpy(nameBuffer, kitName, nameBufferSize - 1);
@@ -1292,17 +1280,13 @@ bool kitLoaderGetKitInfo(
         return true;
     }
 
-    // G19: Jika SD tidak ready, JANGAN melakukan scan.
-    // Mengembalikan false dengan buffer kosong supaya pemanggil
-    // tahu bahwa resolusi gagal karena SD, bukan karena kit
-    // benar-benar tidak ada. Ini mencegah "UNNAMED" palsu yang
-    // hanya disebabkan oleh SD failure (bukan kit hilang).
+    // G19: bila SD tidak ready, JANGAN scan. Return false dgn buffer
+    // kosong supaya pemanggil tahu resolusi gagal karena SD, bukan
+    // karena kit tidak ada — mencegah "UNNAMED" palsu akibat SD failure.
     if (!sdIsReady())
     {
-        // Nama buffer dikosongkan (bukan "UNNAMED") agar pemanggil
-        // bisa membedakan "SD unavailable" dari "kit kosong".
-        // performKitInfoLookup akan log RESOLVE -> UNNAMED tapi
-        // itu karena SD fail, bukan karena nama tidak ada.
+        // Buffer dikosongkan (bukan "UNNAMED") agar pemanggil bisa
+        // membedakan "SD unavailable" dari "kit kosong".
         nameBuffer[0] = '\0';
 
         if (idOut)

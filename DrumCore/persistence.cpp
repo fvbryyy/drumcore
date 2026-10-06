@@ -46,7 +46,7 @@ namespace
     Preferences prefs;
 
     // --------------------------------------------------
-    // Little-Endian helpers (potrtable, tanpa padding)
+    // Little-Endian helpers (portable, tanpa padding)
     // --------------------------------------------------
 
     inline void putU16(uint8_t *b, uint16_t v)
@@ -99,11 +99,11 @@ namespace
     }
 
     // --------------------------------------------------
-    // Decode + validasi: blob -> PadConfig
-    // (kalau nilai invalid, keep default yang sudah ada)
-    //
-    // Batas memakai PAD_FIELD_MIN/MAX (config.h — sumber
-    // kebenaran G8-A), sama dgn UART PAD_SET & JSON kit.
+    // Decode + validasi blob -> PadConfig: nilai invalid =
+    // keep default yang sudah ada. Batas validasi memakai
+    // PAD_FIELD_MIN/MAX (config.h — sumber kebenaran G8-A),
+    // sama dengan yang dipakai UART PAD_SET & JSON kit.
+    // (Lihat PAD_FIELD_MIN/MAX untuk rentang tiap field.)
     // --------------------------------------------------
 
     void decodePad(const uint8_t *blob, PadConfig &c)
@@ -233,9 +233,9 @@ bool persistenceInit()
 
     if (s != SCHEMA_VERSION)
     {
-        // Schema baru/kosong -> tulis schema, biarkan
-        // global default (activeKit=0). Data lama dianggap
-        // invalid dan akan diabaikan saat load.
+        // Schema baru/kosong: tulis schema, biarkan global default
+        // (activeKit=0); data lama dianggap invalid & diabaikan
+        // saat load.
         prefs.putUChar(KEY_SCHEMA, SCHEMA_VERSION);
         Serial0.println("=== NVS: new/empty schema (v1) ===");
     }
@@ -301,8 +301,8 @@ bool persistenceLoadKit(uint8_t kitIndex)
         return false;
     }
 
-    // Apply ke config layer + runtime copy (sinkron dgn
-    // kit_loader: padInit sudah jalan lebih dulu).
+    // Apply ke config layer + runtime copy (sinkron dgn kit_loader:
+    // padInit sudah jalan lebih dulu).
     for (uint8_t i = 0; i < PAD_COUNT; i++)
     {
         const uint8_t *p = &blob[KIT_BLOB_HEADER + i * KIT_PAD_BYTES];

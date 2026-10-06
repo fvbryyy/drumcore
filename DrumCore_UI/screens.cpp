@@ -5,24 +5,17 @@
 #include <cstdio>
 #include <cstring>
 
-// ------------------------------------------------------------
-// G22 — LCD PRODUCT NAME
-//
-// "DRUM COK" adalah SATU-SATUNYA sumber teks branding yang dirender
-// ke LCD. String ini tidak boleh bocor ke nama project/folder/
-// source/binary/protokol: project tetap "DrumCore", firmware tetap
-// "DrumCore v0.4.0". Panjang "DRUM COK" sama dengan "DRUMCORE"
-// (8 kolom), jadi semua layout 16x2 tidak bergeser.
-// ------------------------------------------------------------
+// G22 — LCD PRODUCT NAME: "DRUM COK" adalah SATU-SATUNYA sumber teks branding
+// yang dirender ke LCD; tidak boleh bocor ke nama project/folder/source/binary/
+// protokol (project tetap "DrumCore", firmware tetap "DrumCore v0.4.0").
+// Panjang "DRUM COK" sama dengan "DRUMCORE" (8 kolom) sehingga semua layout
+// 16x2 tidak bergeser.
 
 static const char BRAND_LCD[] = "DRUM COK";
 
-// Baris brand terpusat dengan aksen rule simetris di kiri/kanan.
-//   dashes 0 -> "    DRUM COK    "   (baris brand polos)
-//   dashes 1 -> "   -DRUM COK-   "
-//   dashes 2 -> "  --DRUM COK--  "
-// Aksen memakai DISPLAY_RULE_GLYPH supaya terbaca sebagai garis
-// tipis, bukan karakter '-'.
+// Baris brand terpusat dengan aksen rule simetris di kiri/kanan (dashes 0 =
+// "    DRUM COK    " polos, 1 = "   -DRUM COK-   ", 2 = "  --DRUM COK--  ").
+// Aksen memakai DISPLAY_RULE_GLYPH agar terbaca sebagai garis tipis, bukan '-'.
 static void buildBrandRow(
     char* out,
     uint8_t dashes)
@@ -49,8 +42,8 @@ static void buildBrandRow(
     out[LCD_COLS] = '\0';
 }
 
-// Lockup home "--- DRUM COK ---" (aksen '-' ASCII, bukan glyph rule,
-// supaya baris home tidak berkedip saat progress bar digambar).
+// Lockup home "--- DRUM COK ---" (aksen '-' ASCII, bukan glyph rule, agar baris
+// home tidak berkedip saat progress bar digambar).
 static void buildHomeBrandRow(char* out)
 {
     for (uint8_t i = 0; i < LCD_COLS; i++)
@@ -75,17 +68,12 @@ static void buildHomeBrandRow(char* out)
     out[LCD_COLS] = '\0';
 }
 
-// G11 §3: seluruh UI KIT bersifat name-based. Helper display nomor
-// slot tidak lagi dibutuhkan dan dihapus agar nomor slot tidak dapat
-// muncul di LCD dari jalur mana pun.
+// G11 §3: seluruh UI KIT name-based. Helper display nomor slot dihapus agar
+// nomor slot tak bisa muncul di LCD dari jalur mana pun.
 
-// ------------------------------------------------------------
-// G22 — BOOT STEP TEXT
-//
-// Baris status boot. Semua string muat di 16 kolom sehingga tidak
-// pernah terpotong, dan tidak ada elipsis Berkedip: teks berganti
-// hanya ketika step boot berubah.
-// ------------------------------------------------------------
+// G22 — BOOT STEP TEXT: baris status boot; semua string muat 16 kolom sehingga
+// tak pernah terpotong. Teks berganti hanya saat step boot berubah (tanpa
+// animasi berkedip).
 
 static const char* const BOOT_STEP_TEXT[BOOT_STEP_COUNT] =
 {
@@ -100,9 +88,8 @@ void screenShowBoot(uint8_t frame)
 {
     char line1[LCD_COLS + 1];
 
-    // Frame splash: brand melebar dari tengah ke tepi. Baris bawah
-    // langsung menampilkan step boot pertama supaya layar tidak
-    // pernah kosong sejak frame 0.
+    // Frame splash: brand melebar dari tengah ke tepi; baris bawah langsung
+    // menampilkan step boot pertama agar layar tak pernah kosong sejak frame 0.
     switch (frame)
     {
         case 0:
@@ -175,10 +162,9 @@ void screenShowMainHome(
         }
         else
         {
-            // G24: nama belum/juga tidak termuat. G24 §7 melarang
-            // "..." (berkedip dan tidak informatif) dan nomor slot
-            // ("KIT %02u") juga dilarang tampil (G11 §3). Jadi
-            // laporkan kondisi sebenarnya: masih membaca.
+            // G24 §7: "..." dilarang (berkedip, tidak informatif) dan nomor
+            // slot ("KIT %02u") dilarang tampil (G11 §3). Laporkan kondisi
+            // sebenarnya: masih membaca.
             snprintf(line2, sizeof(line2), "READING");
         }
 
@@ -190,11 +176,7 @@ void screenShowMainHome(
     }
 }
 
-// ------------------------------------------------------------
-// Two-item scrolling list with cursor (reused by multiple menus).
-// line1: "> ITEM_A"
-// line2:   "  ITEM_B"
-// ------------------------------------------------------------
+// List scroll dua item dengan kursor (dipakai banyak menu): baris 1 "> ITEM_A", baris 2 "  ITEM_B".
 static void showScrollingList(
     uint8_t itemIndex,
     uint8_t itemCount,
@@ -240,9 +222,9 @@ void screenShowKitSelect(uint8_t kitIndex, const char* kitName)
     }
     else
     {
-        // G24: "..." dihapus (G24 §7 — berkedip, tidak informatif).
-        // Tampilkan status nyata: nama kit belum diterima dari ESP32.
-        // Nomor slot tetap tidak boleh tampil (G11 §3).
+        // G24 §7: "..." dihapus (berkedip, tidak informatif) — tampilkan status
+        // nyata: nama kit belum diterima dari ESP32. Nomor slot tetap dilarang
+        // (G11 §3).
         snprintf(line2, sizeof(line2), "READING");
     }
 
@@ -265,8 +247,8 @@ void screenShowKitConfirm(
 {
     char line1[LCD_COLS + 1];
 
-    // G11: name-based; berapa pun panjang nama, layar 16 kolom
-    // dipotong agar baris konfirmasi tetap terbaca.
+    // G11: name-based; sepanjang apa pun nama, dipotong ke 16 kolom agar baris
+    // konfirmasi tetap terbaca.
     static const uint8_t NAME_MAX = 12;
     char nameRow[NAME_MAX + 1];
 
@@ -282,9 +264,8 @@ void screenShowKitConfirm(
     }
     else
     {
-        // G24: konfirmasi tidak boleh menebak nama. Kalau nama kosong,
-        // ui.cpp memakai screenShowKitConfirmName() (layar "> YES/NO"
-        // tanpa nama) - path ini hanya defensif.
+        // G24: konfirmasi tak boleh menebak nama. Nama kosong -> ui.cpp memakai
+        // screenShowKitConfirmName() ("> YES/NO" tanpa nama); path ini defensif.
         snprintf(nameRow, sizeof(nameRow), "?");
     }
 
@@ -314,13 +295,10 @@ void screenShowNameEditor(
     const char* name,
     uint8_t cursor)
 {
-    // Satu-satunya renderer editor nama (G24.15). RENAME dan CREATE
-    // memakai fungsi yang sama persis, jadi-delete ini harus tetap
-    // menghasilkan layar yang identik dengan RENAME lama.
-    //
-    // Jendela 14 kolom (sama seperti layar RENAME lama). Begitu
-    // cursor melewati jendela, jendela ikut geser ke kanan supaya
-    // caret tetap terlihat untuk nama panjang (CREATE maks 28).
+    // Satu-satunya renderer editor nama (G24.15): RENAME dan CREATE memakai
+    // fungsi yang sama persis sehingga hasilnya identik. Jendela 14 kolom;
+    // begitu cursor melewatinya, jendela ikut geser ke kanan agar caret tetap
+    // terlihat untuk nama panjang (CREATE maks 28).
     const uint8_t winW = 14;
 
     uint8_t winStart = 0;
@@ -391,8 +369,8 @@ void screenShowKitResultName(
     }
     else
     {
-        // Nama tidak diketahui — status dinaikkan agar tidak ada baris
-        // kosong yang membingungkan.
+        // Nama tak diketahui — status dinaikkan agar tak ada baris kosong yang
+        // membingungkan.
         displayPrintCentered(0, (status && status[0]) ? status : "");
         displayPrintLine(1, "");
     }
@@ -502,7 +480,7 @@ void screenShowPadSoundLoading(uint8_t padIndex)
     snprintf(line1, sizeof(line1), "PAD %02u", padIndex + 1);
 
     displayPrintCentered(0, line1);
-    // G24: "SOUNDS..." -> status eksplisit (G24 §7, no fake progress).
+    // G24 §7: "SOUNDS..." -> status eksplisit "READING" (no fake progress).
     displayPrintCentered(1, "READING");
 }
 

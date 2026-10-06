@@ -3,25 +3,21 @@
 
 #include <Arduino.h>
 
-// ------------------------------------------------------------
-// Menu data model.
+// Model data menu: menu.cpp memiliki list navigasi murni (index + label);
+// transisi screen/state antar menu hidup di ui.cpp yang membaca index saat
+// ini. Ini menjaga menu.cpp bebas dependensi UI/state sekaligus memberi satu
+// sumber kebenaran untuk posisi kursor di layar.
 //
-// menu.cpp owns the pure navigable lists (index + labels). Screen/state
-// transitions between menus live in ui.cpp, which reads the current index
-// and calls the matching progress functions. This keeps menu.cpp free of any
-// UI/state dependency while still giving a single source of truth for the
-// on-screen cursor position.
-//
-// Tree (G24 — hierarchy final, hanya fitur yang benar-benar bekerja):
+// Tree (G24 — hierarki final, hanya fitur yang benar-benar bekerja):
 //   MENU (top level)
-//     KIT        -> KIT actions (LOAD / CREATE / RENAME / DELETE / SAVE / BACK)
-//       LOAD     -> KIT_SELECT (kit browser, ui.cpp)
+//     KIT        -> aksi KIT (LOAD / CREATE / RENAME / DELETE / SAVE / BACK)
+//       LOAD     -> KIT_SELECT (browser kit, ui.cpp)
 //       CREATE   -> KIT_CREATE (EMPTY / COPY CURRENT / BACK)
 //                   lalu KIT_CREATE_NAME (ESP32 memilih slot sendiri)
-//       RENAME   -> KIT_SELECT (kit browser, then editor)
-//       DELETE   -> KIT_SELECT (kit browser, then confirm)
-//       SAVE     -> KIT_ACTION directly (menyimpan kit AKTIF)
-//     PAD        -> PAD 01..12 browser
+//       RENAME   -> KIT_SELECT (browser kit, lalu editor)
+//       DELETE   -> KIT_SELECT (browser kit, lalu konfirmasi)
+//       SAVE     -> langsung KIT_ACTION (menyimpan kit AKTIF)
+//     PAD        -> browser PAD 01..12
 //       PAD xx   -> PAD_EDIT (SOUND / MAPPING / TRIGGER / BACK)
 //         SOUND   -> daftar WAV kit aktif (scan folder samples;
 //                    pilih -> PAD_SOUND_SET assign by filename)
@@ -29,18 +25,17 @@
 //         TRIGGER -> THRESHOLD / RELEASE / PEAK TIME /
 //                    RELEASE STABLE / MASK (edit numerik -> PAD_SET)
 //
-// G24 MENGHAPUS dari navigasi user: SYSTEM, VOLUME, MIDI, SD CARD,
-// INFO, EXTERNAL, TRIGGER EXTERNAL, HI-HAT PEDAL — semuanya tidak
-// punya backend/command nyata. Backend ESP32 tidak disentuh; hanya
-// eksposinya yang dibuang. Lihat classifyAudit() di host tests.
-// ------------------------------------------------------------
+// G24 MENGHAPUS dari navigasi user: SYSTEM, VOLUME, MIDI, SD CARD, INFO,
+// EXTERNAL, TRIGGER EXTERNAL, HI-HAT PEDAL — semuanya tak punya
+// backend/command nyata. Backend ESP32 tidak disentuh; hanya eksposinya
+// yang dibuang. Lihat classifyAudit() di host tests.
 
 void menuInit();
 
 // Reset every cursor to its root (top-level item 0, pad 01, etc.).
 void menuReset();
 
-// --- Top-level menu (KIT / PAD) -------------------------------
+// Top-level menu (KIT / PAD)
 
 void menuNavTop(int8_t delta);
 
@@ -50,7 +45,7 @@ uint8_t menuGetTopCount();
 
 const char* menuGetTopLabel(uint8_t index);
 
-// --- PAD browser (PAD 01 .. PAD 12) -------------------------
+// PAD browser (PAD 01 .. PAD 12)
 
 void menuNavPad(int8_t delta);
 
@@ -58,7 +53,7 @@ uint8_t menuGetPadIndex();
 
 uint8_t menuGetPadCount();
 
-// --- PAD edit list (per-pad parameter groups) ----------------
+// PAD edit list (per-pad parameter groups)
 
 void menuNavPadEdit(int8_t delta);
 
@@ -74,7 +69,7 @@ uint8_t menuGetPadEditBackIndex();
 // Reset a freshly-entered list cursor to its first entry.
 void menuPadEditReset();
 
-// --- Kit action menu (LOAD / CREATE / RENAME / DELETE / SAVE / BACK) ---
+// Kit action menu (LOAD / CREATE / RENAME / DELETE / SAVE / BACK)
 
 void menuKitSubReset();
 
@@ -89,7 +84,7 @@ const char* menuKitSubGetLabel(uint8_t index);
 // Index of the "BACK" entry in the kit sub-menu.
 uint8_t menuKitSubGetBackIndex();
 
-// --- Kit CREATE sub-menu (EMPTY / COPY CURRENT / BACK) -------
+// Kit CREATE sub-menu (EMPTY / COPY CURRENT / BACK)
 
 void menuKitCreateReset();
 
@@ -104,14 +99,11 @@ const char* menuKitCreateGetLabel(uint8_t index);
 // Index of the "BACK" entry in the kit create sub-menu.
 uint8_t menuKitCreateGetBackIndex();
 
-// --- Generic sub-lists (PAD MAPPING / PAD TRIGGER) -------------
-//
-// Both behave identically: a navigable label list terminated by
-// BACK. The list ids keep the data ownership explicit and let ui.cpp
-// reuse one handler for every state.
-//
-// G24: MENU_LIST_EXT_TRIGGER / MENU_LIST_EXT_HHP dihapus — External
-// Trigger dan Hi-Hat Pedal belum punya backend dan tidak boleh tampil.
+// Generic sub-lists (PAD MAPPING / PAD TRIGGER): keduanya list label
+// navigasi yang diakhiri BACK; id list menjaga kepemilikan data eksplisit
+// dan membiarkan ui.cpp memakai satu handler untuk tiap state.
+// G24: MENU_LIST_EXT_TRIGGER / MENU_LIST_EXT_HHP dihapus — External Trigger
+// dan Hi-Hat Pedal belum punya backend dan tidak boleh tampil.
 
 constexpr uint8_t MENU_LIST_PAD_MAPPING = 0;   // MIDI NOTE / BACK
 constexpr uint8_t MENU_LIST_PAD_TRIGGER = 1;   // THRESHOLD / RELEASE / PEAK TIME / RELEASE STABLE / MASK / BACK

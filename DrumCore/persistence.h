@@ -9,9 +9,9 @@
 // NVS Persistence (Phase 6B)
 // ======================================================
 //
-// Menyimpan user settings per-kit yang DAPAT diubah
-// user/UI ke NVS (ESP32 Preferences). JSON di SD tetap
-// menjadi base/factory config. NVS menyimpan override
+// Menyimpan user settings per-kit yang dapat diubah user/UI
+// ke NVS (ESP32 Preferences).
+// JSON di SD = base/factory config; NVS menyimpan override
 // persistent di atasnya.
 //
 // PRINSIP:

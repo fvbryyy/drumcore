@@ -1,0 +1,11 @@
+# PlatformIO build artifacts
+DrumCore/.pio/
+DrumCore_UI/.pio/
+
+# Python cache
+__pycache__/
+*.pyc
+host_tests/__pycache__/
+
+# macOS
+.DS_Store

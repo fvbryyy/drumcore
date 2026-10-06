@@ -5,44 +5,32 @@
 #include "hardware.h"
 
 // ======================================================
-// Auto-Capture ADC Calibration
+// Simple ADC Hit Reporter
 // ======================================================
 //
-// Semua mode berjalan otomatis:
-//   BASELINE  — akumulasi idle noise selama BASELINE_MS,
-//               lalu cetak & restart. Tidak pernah berhenti.
-//   HIT       — setiap pad yang melewati CAL_HIT_THRESHOLD
-//               langsung dicetak saat peak-nya selesai.
-//   CROSSTALK — setiap hit kuat (>= XTALK_SOURCE_THRESHOLD)
-//               diikuti window pengukuran leak 12 pad.
+// Sengaja dibuat SESIMPLE mungkin: setiap pukulan yang
+// terdeteksi mencetak SATU BARIS berisi peak ADC ke-12 pad.
+//
+// Format:
+//   HIT p03 pk420 : 12 25 420 38 15 20 18 22 19 31 28 24
+//         ^         ^
+//     pad yang      12 angka = peak PAD01..PAD12 berurutan
+//     dipukul
+//
+// Cara pakai: pukul pad, copy barisnya, kirim ke yang
+// menentukan settingan. Dari satu baris langsung terbaca:
+// peak source + bocoran (crosstalk) ke semua pad lain.
 //
 // Tidak ada Serial input, tidak ada command, tidak ada
-// mode state machine yang butuh user intervention.
+// baseline print berkala — hanya angka mentah ADC.
 
 namespace
 {
-    // --------------------------------------------------
-    // Timing constants
-    // --------------------------------------------------
-
-    // Baseline: akumulasi selama ini, lalu cetak & reset
-    constexpr uint32_t BASELINE_PRINT_INTERVAL_MS = 3000;
-
     // Threshold deteksi hit pada loop() non-realtime.
-    // Lebih rendah dari trigger engine threshold (300) supaya
-    // kita tangkap bahkan pukulan sangat pelan.
-    constexpr uint16_t CAL_HIT_THRESHOLD = 150;
-
-    // Threshold minimum source peak untuk cetak [CROSSTALK].
-    // Hit di bawah ini tetap dicetak sebagai [HIT] tapi
-    // crosstalk tidak ditampilkan (kurang informatif).
-    constexpr uint16_t XTALK_SOURCE_THRESHOLD = 400;
-
-    // Window observasi crosstalk (µs) setelah source terdeteksi.
-    constexpr uint32_t XTALK_WINDOW_US = 50000; // 50 ms
-
-    // Minimal elapsed sebelum window crosstalk bisa ditutup (µs)
-    constexpr uint32_t XTALK_MIN_CLOSE_US = 5000;
+    // 30 dipilih supaya pad kecil (peak ADC 20-150) ikut
+    // terdeteksi. Naikkan jika idle noise sering memicu
+    // baris HIT tanpa ada pukulan.
+    constexpr uint16_t CAL_HIT_THRESHOLD = 30;
 
     // Cooldown antara dua hit event dari pad yang sama (µs)
     // agar satu pukulan tidak tercatat dua kali.
@@ -54,196 +42,58 @@ namespace
 
     PadCalData g_calData[PAD_COUNT];
 
-    // Baseline timing
-    uint32_t g_baselineStartMs = 0;
+    // Hit detection state (non-realtime observer)
+    bool     g_hitArmed[PAD_COUNT] = {};
+    uint16_t g_hitPeak[PAD_COUNT]  = {};
 
-    // Per-pad hit detection state (non-realtime observer)
-    bool     g_hitArmed[PAD_COUNT]    = {};
-    uint16_t g_hitPeak[PAD_COUNT]     = {};
-    uint32_t g_hitStartUs[PAD_COUNT]  = {};
-
-    // Crosstalk capture state
-    bool     g_xtalkActive            = false;
-    uint8_t  g_xtalkSource            = 0;
-    uint16_t g_xtalkSourcePeak        = 0;
-    uint16_t g_xtalkVictim[PAD_COUNT] = {};
-    uint32_t g_xtalkStartUs           = 0;
+    // Peak semua pad selama satu pukulan berlangsung.
+    // Diisi saat hit terdeteksi (bukan setelah selesai)
+    // karena peak bocoran mekanik terjadi bersamaan
+    // dengan transient pukulan.
+    bool     g_capActive          = false;
+    uint8_t  g_capSource          = 0;
+    uint16_t g_capPeak[PAD_COUNT] = {};
 
     // --------------------------------------------------
-    // Baseline
+    // Capture: track peak ke-12 pad selama window pukulan
     // --------------------------------------------------
 
-    void baselineReset()
+    void capStart(uint8_t source, uint16_t v)
     {
+        g_capActive = true;
+        g_capSource = source;
         for (uint8_t i = 0; i < PAD_COUNT; i++)
-        {
-            g_calData[i].idleMin   = 0xFFFF;
-            g_calData[i].idleMax   = 0;
-            g_calData[i].idleSum   = 0;
-            g_calData[i].idleCount = 0;
-        }
-        g_baselineStartMs = millis();
+            g_capPeak[i] = readPadADC(i);
+        g_capPeak[source] = v;
     }
 
-    void baselineSample()
+    void capSample()
     {
+        if (!g_capActive) return;
         for (uint8_t i = 0; i < PAD_COUNT; i++)
         {
             const uint16_t v = readPadADC(i);
-
-            if (v < g_calData[i].idleMin) g_calData[i].idleMin = v;
-            if (v > g_calData[i].idleMax) g_calData[i].idleMax = v;
-
-            g_calData[i].idleSum += v;
-            g_calData[i].idleCount++;
+            if (v > g_capPeak[i])
+                g_capPeak[i] = v;
         }
     }
 
-    void baselinePrint()
+    void capStopAndPrint()
     {
-        Serial0.println("\n[BASELINE]");
-
-        for (uint8_t i = 0; i < PAD_COUNT; i++)
+        // Satu baris: HIT pNN pkNNNN : v1 v2 ... v12
+        char line[160];
+        int n = snprintf(line, sizeof(line), "HIT p%02u pk%u :",
+                         (unsigned)(g_capSource + 1),
+                         (unsigned)g_capPeak[g_capSource]);
+        for (uint8_t i = 0; i < PAD_COUNT && n < (int)sizeof(line) - 6; i++)
         {
-            const PadCalData &d = g_calData[i];
-
-            const uint16_t avg =
-                (d.idleCount > 0)
-                ? (uint16_t)(d.idleSum / d.idleCount)
-                : 0;
-
-            const uint16_t idleMin =
-                (d.idleMin == 0xFFFF) ? 0 : d.idleMin;
-
-            const uint16_t range =
-                (d.idleMax >= idleMin)
-                ? (d.idleMax - idleMin)
-                : 0;
-
-            char line[80];
-            snprintf(line, sizeof(line),
-                     "PAD%02u GPIO%-2u  idle_min=%4u  idle_avg=%4u"
-                     "  idle_max=%4u  range=%4u",
-                     (unsigned)(i + 1),
-                     (unsigned)PAD_PINS[i],
-                     (unsigned)idleMin,
-                     (unsigned)avg,
-                     (unsigned)d.idleMax,
-                     (unsigned)range);
-            Serial0.println(line);
+            n += snprintf(line + n, sizeof(line) - n, " %u",
+                          (unsigned)g_capPeak[i]);
         }
-    }
+        Serial0.println(line);
 
-    void taskBaseline()
-    {
-        // Selalu sample setiap call
-        baselineSample();
-
-        // Cetak & reset setiap BASELINE_PRINT_INTERVAL_MS
-        const uint32_t nowMs = millis();
-        if ((nowMs - g_baselineStartMs) >= BASELINE_PRINT_INTERVAL_MS)
-        {
-            baselinePrint();
-            baselineReset();
-        }
-    }
-
-    // --------------------------------------------------
-    // Crosstalk
-    // --------------------------------------------------
-
-    void startCrosstalk(uint8_t source, uint16_t sourcePeak)
-    {
-        g_xtalkActive     = true;
-        g_xtalkSource     = source;
-        g_xtalkSourcePeak = sourcePeak;
-        g_xtalkStartUs    = micros();
-
-        // Snapshot semua pad sebagai baseline victim
-        for (uint8_t i = 0; i < PAD_COUNT; i++)
-            g_xtalkVictim[i] = readPadADC(i);
-    }
-
-    void taskCrosstalk()
-    {
-        if (!g_xtalkActive) return;
-
-        const uint32_t nowUs   = micros();
-        const uint32_t elapsed = nowUs - g_xtalkStartUs;
-        const uint16_t vSrc    = readPadADC(g_xtalkSource);
-
-        // Update source peak selama window
-        if (vSrc > g_xtalkSourcePeak)
-            g_xtalkSourcePeak = vSrc;
-
-        // Update victim max
-        for (uint8_t i = 0; i < PAD_COUNT; i++)
-        {
-            if (i == g_xtalkSource) continue;
-            const uint16_t vVic = readPadADC(i);
-            if (vVic > g_xtalkVictim[i])
-                g_xtalkVictim[i] = vVic;
-        }
-
-        // Tutup window: source turun + minimal elapsed, atau timeout
-        const bool sourceDone =
-            (vSrc < CAL_HIT_THRESHOLD) && (elapsed >= XTALK_MIN_CLOSE_US);
-        const bool timeout = (elapsed >= XTALK_WINDOW_US);
-
-        if (!sourceDone && !timeout) return;
-
-        // Cetak [CROSSTALK]
-        Serial0.println("\n[CROSSTALK]");
-
-        char srcLine[64];
-        snprintf(srcLine, sizeof(srcLine),
-                 "SOURCE PAD%02u GPIO%u  peak=%u",
-                 (unsigned)(g_xtalkSource + 1),
-                 (unsigned)PAD_PINS[g_xtalkSource],
-                 (unsigned)g_xtalkSourcePeak);
-        Serial0.println(srcLine);
-
-        uint16_t worstPeak   = 0;
-        uint8_t  worstVictim = 0;
-
-        for (uint8_t i = 0; i < PAD_COUNT; i++)
-        {
-            if (i == g_xtalkSource) continue;
-
-            const uint16_t leak = g_xtalkVictim[i];
-
-            char vicLine[48];
-            snprintf(vicLine, sizeof(vicLine),
-                     "PAD%02u GPIO%-2u  leak=%u",
-                     (unsigned)(i + 1),
-                     (unsigned)PAD_PINS[i],
-                     (unsigned)leak);
-            Serial0.println(vicLine);
-
-            // Update cumulative xtalkMax per victim pad
-            if (leak > g_calData[i].xtalkMax)
-                g_calData[i].xtalkMax = leak;
-
-            if (leak > worstPeak)
-            {
-                worstPeak   = leak;
-                worstVictim = i;
-            }
-        }
-
-        char worstLine[64];
-        snprintf(worstLine, sizeof(worstLine),
-                 "WORST PAD%02u GPIO%u  peak=%u",
-                 (unsigned)(worstVictim + 1),
-                 (unsigned)PAD_PINS[worstVictim],
-                 (unsigned)worstPeak);
-        Serial0.println(worstLine);
-
-        // Reset crosstalk state
-        g_xtalkActive     = false;
-        g_xtalkSourcePeak = 0;
-        for (uint8_t i = 0; i < PAD_COUNT; i++)
-            g_xtalkVictim[i] = 0;
+        g_capActive = false;
+        g_capSource = 0;
     }
 
     // --------------------------------------------------
@@ -270,15 +120,18 @@ namespace
 
                     if (cooled)
                     {
-                        g_hitArmed[i]   = true;
-                        g_hitPeak[i]    = v;
-                        g_hitStartUs[i] = nowUs;
+                        g_hitArmed[i] = true;
+                        g_hitPeak[i]  = v;
+
+                        // Langsung mulai capture semua pad
+                        if (!g_capActive)
+                            capStart(i, v);
                     }
                 }
                 continue;
             }
 
-            // Armed: track peak
+            // Armed: track peak pad ini
             if (v > g_hitPeak[i])
                 g_hitPeak[i] = v;
 
@@ -287,27 +140,16 @@ namespace
             {
                 const uint16_t peak = g_hitPeak[i];
 
-                // Cetak [HIT]
-                char line[64];
-                snprintf(line, sizeof(line),
-                         "[HIT] PAD%02u GPIO%u  peak=%u",
-                         (unsigned)(i + 1),
-                         (unsigned)PAD_PINS[i],
-                         (unsigned)peak);
-                Serial0.println(line);
-
-                // Update per-pad stats
                 if (peak > g_calData[i].peakMax)
                     g_calData[i].peakMax = peak;
-                g_calData[i].peakLast    = peak;
-                g_calData[i].lastEventUs  = nowUs;
+                g_calData[i].peakLast   = peak;
+                g_calData[i].lastEventUs = nowUs;
 
-                // Mulai crosstalk jika peak cukup kuat
-                // dan tidak sedang ada crosstalk aktif
-                if (!g_xtalkActive && peak >= XTALK_SOURCE_THRESHOLD)
-                    startCrosstalk(i, peak);
+                // Cetak satu baris & tutup capture
+                // (hanya jika capture ini milik hit ini)
+                if (g_capActive && g_capSource == i)
+                    capStopAndPrint();
 
-                // Reset hit state
                 g_hitArmed[i] = false;
                 g_hitPeak[i]  = 0;
             }
@@ -324,22 +166,18 @@ void adcCalibrationInit()
 {
     for (uint8_t i = 0; i < PAD_COUNT; i++)
     {
-        g_calData[i]     = PadCalData{};
-        g_calData[i].idleMin = 0xFFFF;
-        g_hitArmed[i]    = false;
-        g_hitPeak[i]     = 0;
-        g_hitStartUs[i]  = 0;
-        g_xtalkVictim[i] = 0;
+        g_calData[i]  = PadCalData{};
+        g_hitArmed[i] = false;
+        g_hitPeak[i]  = 0;
+        g_capPeak[i]  = 0;
     }
 
-    g_xtalkActive     = false;
-    g_xtalkSource     = 0;
-    g_xtalkSourcePeak = 0;
-    g_xtalkStartUs    = 0;
-    g_baselineStartMs = millis();
+    g_capActive = false;
+    g_capSource = 0;
 
-    Serial0.println("\n[ADC-CAL] Auto-capture active.");
-    Serial0.println("[ADC-CAL] Keep pads idle — baseline in progress...");
+    Serial0.println();
+    Serial0.println("[ADC-CAL] Pukul pad — satu baris per pukulan.");
+    Serial0.println("[ADC-CAL] Format: HIT pNN pkNNNN : v1 v2 ... v12");
 }
 
 // ======================================================
@@ -352,9 +190,8 @@ void adcCalibrationTask()
     while (Serial0.available() > 0)
         Serial0.read();
 
-    taskBaseline();
     taskHitDetection();
-    taskCrosstalk();
+    capSample();
 }
 
 #endif // DEBUG_ADC_CALIBRATION

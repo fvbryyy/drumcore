@@ -1,20 +1,19 @@
 #include "encoder.h"
 #include "config.h"
 
-// Quadrature decoding delegated to the well-tested mathertel RotaryEncoder
-// library, using the exact configuration that was verified on this hardware:
-//   pins (D6, D5) Dibalik — arah kanan/kiri normal lagi;
-//   LatchMode::TWO03      — encoders whose detent sits at states 0 AND 3.
-//
-// The reference sketch polls tick() every loop. Here it is even safer: tick()
-// is called from an interrupt on every pin CHANGE, so a fast spin can never
-// fall into a 20 ms UI poll gap or get eaten by LCD I2C writes.
+// Decoding quadrature didelegasikan ke library mathertel RotaryEncoder yang
+// teruji, dengan konfigurasi persis yang terverifikasi di hardware ini:
+//   pin (D6, D5) dibalik — arah kanan/kiri normal lagi;
+//   LatchMode::TWO03     — encoder yang detent-nya di state 0 DAN 3.
+// Sketsa referensi mem-poll tick() tiap loop; di sini lebih aman: tick()
+// dipanggil dari interupsi setiap CHANGE pin, jadi putaran cepat tak pernah
+// jatuh ke celah poll UI 20 ms atau termakan tulis I2C LCD.
 #include <RotaryEncoder.h>
 
 #include <esp8266_peri.h>
 
-// NOTE: pin order is intentionally (ENCODER_PIN_B, ENCODER_PIN_A) so the
-// library sees (D6, D5) exactly like the verified reference sketch.
+// NOTE: urutan pin sengaja (ENCODER_PIN_B, ENCODER_PIN_A) agar library
+// melihat (D6, D5) persis seperti sketsa referensi yang terverifikasi.
 static RotaryEncoder rotary(
     ENCODER_PIN_B,   // D6 -> sig1
     ENCODER_PIN_A,   // D5 -> sig2
@@ -23,24 +22,19 @@ static RotaryEncoder rotary(
 static volatile bool pressed = false;
 static volatile bool longPressed = false;
 
-// Last position handed out by encoderGetDelta().
 static int32_t lastReportPos = 0;
 
-// Cap steps emitted in one poll window so an int8_t overflow or an electrical
-// burst cannot cause erratic menu jumps.
+// Batasi step per jendela poll agar overflow int8_t/burst elektrik tak
+// menyebabkan lompatan menu liar.
 static constexpr int8_t DELTA_CLAMP = 8;
 
-// ------------------------------------------------------------
-// Button state machine (unchanged from the previous driver).
-//
-// IDLE --> PRESSED --> LONG_PRESSED --> (release) --> IDLE
-//                  \--> (release < threshold) emits short press --> IDLE
-//
-// Once a long press is emitted, the state becomes LONG_PRESSED and the
-// pending short press is cancelled forever. encoderFlush() may move the
-// machine to CONSUMED while the button is still held, so the remaining part
-// of that hold can never fire anything in the newly entered state.
-// ------------------------------------------------------------
+// State machine tombol (tak berubah dari driver sebelumnya).
+//   IDLE --> PRESSED --> LONG_PRESSED --> (release) --> IDLE
+//                    \--> (release < threshold) emit short press --> IDLE
+// Setelah long press diemit, state menjadi LONG_PRESSED dan short press
+// pending dibatalkan selamanya. encoderFlush() bisa memindahkan mesin ke
+// CONSUMED saat tombol masih ditahan, agar sisa hold tak bisa menyalakan
+// apa pun di state yang baru dimasuki.
 
 enum class BtnState : uint8_t
 {
@@ -109,7 +103,6 @@ void encoderUpdate()
 
     uint8_t raw = digitalRead(ENCODER_BUTTON);
 
-    // ---- Debounce the raw level into stableButton. ----
     if (raw != stableButton)
     {
         if (!settlePending)
@@ -128,7 +121,6 @@ void encoderUpdate()
         settlePending = false;
     }
 
-    // ---- State transitions on the debounced level. ----
     switch (btnState)
     {
         case BtnState::IDLE:
@@ -142,21 +134,19 @@ void encoderUpdate()
         case BtnState::PRESSED:
             if (stableButton == HIGH)
             {
-                // Released before the long-press threshold: a short press.
                 pressed = true;
                 btnState = BtnState::IDLE;
             }
             else if (now - downStartMs >= ENCODER_LONG_PRESS_MS)
             {
-                // Held long enough: emit the long press exactly once and
-                // cancel the pending short press forever for this hold.
+                // Tahan cukup lama: emit long press tepat sekali; short press
+                // pending dibatalkan selamanya untuk hold ini.
                 longPressed = true;
                 btnState = BtnState::LONG_PRESSED;
             }
             break;
 
         case BtnState::LONG_PRESSED:
-            // Still holding: nothing more. Release simply ends the hold.
             if (stableButton == HIGH)
             {
                 btnState = BtnState::IDLE;
@@ -164,8 +154,8 @@ void encoderUpdate()
             break;
 
         case BtnState::CONSUMED:
-            // The transition already used this press. The rest of the hold is
-            // inert, and releasing it must not produce any press event.
+            // Transisi sudah memakai press ini. Sisa hold inert; melepasnya
+            // tidak boleh menghasilkan event press apa pun.
             if (stableButton == HIGH)
             {
                 btnState = BtnState::IDLE;
@@ -228,10 +218,10 @@ void encoderFlush()
     settlePending = false;
     interrupts();
 
-    // Align the machine with the physical button. If it is still pressed
-    // (typical right after a long press caused a transition), mark the rest
-    // of this hold as CONSUMED so no release-click or second long-press can
-    // fire inside the new state. If it is released, go back to IDLE.
+    // Selaraskan mesin dengan tombol fisik. Bila masih ditekan (khas tepat
+    // setelah long press memicu transisi), tandai sisa hold ini sebagai
+    // CONSUMED agar tak ada release-click/long-press kedua yang menyala di
+    // state baru. Bila sudah dilepas, kembali ke IDLE.
     uint8_t raw = digitalRead(ENCODER_BUTTON);
     stableButton = raw;
     btnState = (raw == LOW) ? BtnState::CONSUMED : BtnState::IDLE;

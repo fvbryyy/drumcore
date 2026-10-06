@@ -16,10 +16,9 @@ uint8_t audioActiveVoiceCount();
 // HIT GATE (kit-switch support)
 // ======================================================
 //
-// Selama kit switch berjalan (control plane), hit BARU tidak
-// boleh membuat voice baru; voice yang sedang aktif harus
-// selesai normal dulu sebelum PSRAM di-unload. Gate ini
-// dipakai performKitSwitch() (UART task, Core 1):
+// Selama kit switch (control plane): hit BARU tidak boleh membuat voice baru;
+// voice aktif harus selesai normal dulu sebelum PSRAM di-unload. Dipakai
+// performKitSwitch() (UART task, Core 1):
 //
 //   audioSetHitAccept(false):
 //     - audioTrigger() (producer, TriggerTask) membuang hit baru.
@@ -27,16 +26,14 @@ uint8_t audioActiveVoiceCount();
 //     Hanya atomic flag lintas-core, tanpa mutex/malloc/print.
 //
 //   audioHitRingEmpty():
-//     true jika seluruh hit yang pernah masuk ring sudah
-//     dikonsumsi AudioTask. Dipakai sebelum hit acceptance
-//     dihidupkan lagi supaya hit lama tidak "menyala" setelah
-//     kit switch selesai.
+//     true jika seluruh hit di ring sudah dikonsumsi AudioTask. Dipakai
+//     sebelum acceptance dihidupkan lagi supaya hit lama tidak "menyala"
+//     setelah kit switch selesai.
 //
 //   audioActiveVoiceMaxRemainingUs():
-//     Estimasi waktu sisa (us) hingga voice aktif terpanjang
-//     selesai secara alami. Best-effort, read-only, non-blocking.
-//     Dipakai kit switch sebagai deadline adaptif (bukan nilai
-//     tetap 600 ms), karena crash/cymbal bisa berbunyi detik.
+//     Estimasi sisa waktu (us) hingga voice aktif terpanjang selesai alami.
+//     Best-effort, read-only, non-blocking. Dipakai sebagai deadline adaptif
+//     (bukan 600 ms tetap), karena crash/cymbal bisa berbunyi detik.
 
 void audioSetHitAccept(bool accept);
 
@@ -57,8 +54,8 @@ void audioTrigger(
 
 uint32_t audioHitRingOverflowCount();
 
-// Playability diagnostic snapshot (DEBUG_PLAYABILITY).
-// Kembali sebagai struct; dibaca dari Core 1 oleh laporan.
+// Snapshot diagnostik playability (DEBUG_PLAYABILITY). Kembali sebagai
+// struct; dibaca dari Core 1 oleh laporan.
 struct AudioPlayabilityStats
 {
     uint32_t triggerHits;

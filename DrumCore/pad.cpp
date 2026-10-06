@@ -39,10 +39,10 @@ void padInit()
         c.pin          = PAD_PINS[i];
         c.midiNote     = PAD_MIDI_NOTES[i];
 
-        // MAX-S2 RESPONSIVENESS: threshold lebih rendah
-        // (350 -> 300) agar pukulan pelan lebih gampang
-        // terdeteksi. releaseThreshold harus < threshold
-        // (300 -> 250) untuk histeresis valid.
+        // Responsiveness: threshold lebih rendah (350 -> 300)
+        // agar pukulan pelan lebih gampang terdeteksi.
+        // releaseThreshold harus < threshold (300 -> 250)
+        // untuk histeresis valid.
         c.threshold         = 300;
         c.releaseThreshold  = 250;
 
@@ -67,9 +67,9 @@ void padInit()
 
         pad.config = c;
 
-        // Runtime retrigger mask: base (ms) dari config.
-        // Nilai awal = base tanpa adjustment; trigger engine
-        // akan menimpa dengan adjustMaskTime()*1000 per hit.
+        // Nilai awal mask = base (ms) tanpa adjustment;
+        // trigger engine menimpa dengan adjustMaskTime()*1000
+        // per hit.
         pad.maskTime = PAD_MASK_MS[i];
 
         // ==============================================

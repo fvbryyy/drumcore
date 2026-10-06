@@ -8,13 +8,11 @@
 #include <cstdio>
 #include <cstring>
 
-// Kit index upper bound. Mirrors ESP32 UART_MAX_KIT (4 = kits 0..4).
-// Defined locally because UART_MAX_KIT lives in DrumCore config.h
-// which is not available in the Wemos/ESP8266 build.
-//
-// Slot numbering is consistent with the backend:
-//   internal 0 = factory kit (protected, "KIT 01")
-//   internal 1..4 = writable user slots ("KIT 02".."KIT 05")
+// Batas atas index kit; mencerminkan ESP32 UART_MAX_KIT (4 = kit 0..4).
+// Didefinisikan lokal karena UART_MAX_KIT ada di DrumCore config.h yang tak
+// tersedia di build Wemos/ESP8266. Penomoran slot konsisten dengan backend:
+// internal 0 = factory kit (protected, "KIT 01"), internal 1..4 = slot user
+// writable ("KIT 02".."KIT 05").
 static constexpr uint8_t UI_MAX_KIT      = 4;
 static constexpr uint8_t UI_FACTORY_KIT  = 0;
 static constexpr uint8_t UI_MIN_WRITABLE = 1;
@@ -23,9 +21,7 @@ static UIState uiState = UIState::BOOT;
 static uint32_t lastUpdateMs = 0;
 static uint32_t lastPingMs = 0;
 
-// ============================================================
-// BOOT / INIT / READY / CHECK_CONNECTION
-// ============================================================
+// ----- BOOT / INIT / READY / CHECK_CONNECTION -----
 
 enum class PingPhase : uint8_t
 {
@@ -48,16 +44,11 @@ static uint8_t lastInitStep = 0xFF;
 
 static uint32_t readyShownMs = 0;
 
-// ============================================================
-// ACTIVE KIT (kit currently loaded by DrumCore)
-// ============================================================
-//
-// ACTIVE KIT is updated ONLY by trustable sources:
-//   - STATUS response (home screen entry)
-//   - LOAD success response (ARG0 = the newly active kit)
-//   - DELETE of the active kit (backend guarantees fallback to the
-//     factory kit, see kit_manager.cpp)
-// CREATE / SAVE / RENAME never change the active kit.
+// ----- ACTIVE KIT (kit yang sedang dimuat DrumCore) -----
+// ACTIVE KIT hanya diupdate oleh sumber terpercaya: respons STATUS (masuk home
+// screen), respons sukses LOAD (ARG0 = kit aktif baru), dan DELETE kit aktif
+// (backend menjamin fallback ke factory kit, lihat kit_manager.cpp).
+// CREATE / SAVE / RENAME tak pernah mengubah active kit.
 
 static uint8_t activeKit = 0;
 static bool activeKitKnown = false;
@@ -66,11 +57,9 @@ static bool mainStatusPending = false;
 static uint32_t mainStatusStartMs = 0;
 static uint8_t mainStatusSeq = 0;
 
-// ============================================================
-// Kit name cache (CMD_KIT_INFO, keyed by the requested index).
-// It always exactly answers "which kit is index X", regardless of
-// whether X is the active kit or a browsing selection.
-// ============================================================
+// ----- Kit name cache (CMD_KIT_INFO, keyed by requested index) -----
+// Selalu menjawab tepat "kit mana index X", entah X kit aktif atau pilihan
+// browsing.
 
 // G14: trace sementara propagasi nama (transition-only). Matikan
 // (false) setelah verifikasi hardware selesai.
@@ -93,13 +82,12 @@ static void ensureKitNameRequest(uint8_t idx)
         return;
     }
 
-    // G13+G14: satu sesi KIT_INFO (request->header->chunk->consume)
-    // dianggap sibuk sampai benar-benar selesai. Dulu guard hanya
-    // 'kitInfoPending' â€” header langsung melepas pending padahal chunk
-    // masih dirakit, jadi request baru bisa lewat dan membuang rakitan
-    // yang sedang berjalan (livelock bila drain UART terpecah). Sekarang
-    // setiap aktivitas KIT_INFO memblokir request baru; retry hanya
-    // terjadi setelah consume sukses atau timeout.
+    // G13+G14: satu sesi KIT_INFO (request->header->chunk->consume) dianggap
+    // sibuk sampai benar-benar selesai. Dulu guard hanya 'kitInfoPending' —
+    // header langsung melepas pending padahal chunk masih dirakit, jadi request
+    // baru bisa lewat dan membuang rakitan yang berjalan (livelock bila drain
+    // UART terpecah). Kini setiap aktivitas KIT_INFO memblokir request baru;
+    // retry hanya setelah consume sukses atau timeout.
     if (uartKitInfoBusy())
     {
         return;
@@ -114,9 +102,9 @@ static void invalidateKitName()
     kitNameBuf[0] = '\0';
 }
 
-// Call every UI update. Consumes one completed KIT_INFO packet and
-// returns true when that packet belongs to `idx` (seq matching inside
-// uart_client prevents a stale request from ever landing here).
+// Dipanggil tiap UI update. Mengonsumsi satu paket KIT_INFO yang lengkap dan
+// return true bila paket itu milik `idx` (pencocokan seq di uart_client
+// mencegah request basi mendarat di sini).
 static bool pollKitName(uint8_t idx)
 {
     uint8_t ridx = 0;
@@ -148,18 +136,16 @@ static bool pollKitName(uint8_t idx)
     return (ridx == idx);
 }
 
-// ============================================================
-// KIT TRANSACTION BOOKKEEPING
-// ============================================================
+// ----- KIT TRANSACTION BOOKKEEPING -----
 
 enum class KitAction : uint8_t
 {
     NONE,
     LOAD,
     SAVE,
-    // G4: create with user name (auto-slot) â€” satu-satunya jalur CREATE
-    // yang masih hidup. Varian tanpa nama (CMD_KIT_CREATE_EMPTY/ COPY)
-    // hanya dipakai layar SELECT SLOT yang sudah mati dan dibuang G24.
+    // G4: create dengan nama user (auto-slot) — satu-satunya jalur CREATE yang
+    // masih hidup. Varian tanpa nama (CMD_KIT_CREATE_EMPTY/COPY) hanya dipakai
+    // layar SELECT SLOT yang sudah mati dan dibuang G24.
     CREATE_EMPTY_NAMED,
     CREATE_COPY_NAMED,
     DELETE,
@@ -168,9 +154,8 @@ enum class KitAction : uint8_t
 
 static KitAction kitActiveAction = KitAction::NONE;
 
-// The kit THIS transaction operates on (progress + result label).
-// Kept separate from activeKit: a CREATE does not make the new kit
-// the active one.
+// Kit yang dioperasikan transaksi INI (progress + label hasil). Terpisah dari
+// activeKit: CREATE tidak menjadikan kit baru sebagai kit aktif.
 static uint8_t kitSubject = 0;
 
 static const char* kitActionLabel(KitAction a)
@@ -215,8 +200,7 @@ static const char* kitActionFailText(KitAction a)
     }
 }
 
-// CREATE-bernama (G4): konsep slot tidak terlihat user â€” progress
-// dan hasil ditampilkan tanpa angka kit.
+// CREATE-bernama (G4): konsep slot tak terlihat user — progress dan hasil ditampilkan tanpa angka kit.
 static bool isNamedCreate(KitAction a)
 {
     return a == KitAction::CREATE_EMPTY_NAMED ||
@@ -243,60 +227,49 @@ static uint32_t kitActionResultMs = 0;
 static uint8_t kitActionResultKind = 0;
 // 0 = none  1 = ok (hasil generic)  3 = failed  4 = timeout
 static bool kitActionNameExists = false;
-// RENAME / CREATE-bernama ditolak karena nama sudah dipakai kit lain
-// (status RESP_NAME_EXISTS, 0x07).
+// RENAME / CREATE-bernama ditolak karena nama sudah dipakai kit lain (status RESP_NAME_EXISTS, 0x07).
 static bool kitActionNameInvalid = false;
-// Nama yang dikirim ditolak backend karena invalid (RESP_INVALID_VALUE,
-// 0x03) â€” dipakai utk RENAME dan CREATE-bernama.
+// Nama yang dikirim ditolak backend karena invalid (RESP_INVALID_VALUE, 0x03)
+// — dipakai utk RENAME dan CREATE-bernama.
 static bool kitActionBusy = false;
-// G24.15: semua slot kit user (1..4) sudah terisi (RESP_NO_SPACE,
-// 0x08). Ini BUKAN "backend sibuk" — user harus diberi tahu tidak
-// ada ruang, bukan melihat BUSY yang menyesatkan.
+// G24.15: semua slot kit user (1..4) sudah terisi (RESP_NO_SPACE, 0x08). Ini
+// BUKAN "backend sibuk" — user harus diberi tahu tak ada ruang, bukan melihat
+// BUSY yang menyesatkan.
 static bool kitActionNoSpace = false;
-// Backend sibuk / SD / NVS gagal (RESP_BUSY, 0x05) â€” ditampilkan
-// sebagai kelas error terpisah (G11 Â§11) agar tidak disembunyikan
-// ke dalam "<VERB> FAILED" generik.
+// Backend sibuk / SD / NVS gagal (RESP_BUSY, 0x05) — ditampilkan sebagai kelas
+// error terpisah (G11 §11) agar tak disembunyikan ke "<VERB> FAILED" generik.
 
-// G11: snapshot nama subjek saat action diluncurkan. Berbeda dari
-// cache KIT_INFO (yang boleh berubah selama menunggu respon), hasil
-// layar selalu name-based: nama ini lah yang tampil. Untuk RENAME,
-// isinya adalah nama LAMA (nama baru di renameBuf).
+// G11: snapshot nama subjek saat action diluncurkan. Berbeda dari cache
+// KIT_INFO (yang boleh berubah selama menunggu respons), hasil layar selalu
+// name-based: nama inilah yang tampil. Untuk RENAME, isinya nama LAMA (nama
+// baru di renameBuf).
 static char kitSubjectName[KIT_NAME_MAX + 1] = "";
 
 static uint8_t lastActionPercent = 0xFF;
 
-// ============================================================
-// SELECTION STATE
-// ============================================================
-//
-// SELECTED KIT (kitSelectPurpose + selectedKit) is what LOAD/RENAME/
-// DELETE operate on. It is a LOCAL-ONLY selection: rotating a browser
-// NEVER sends KIT_NEXT/KIT_PREV, so no stale UART response can ever
-// move the selection. Kit names are fetched independently via
-// read-only CMD_KIT_INFO(index).
-//
-// G24: targetSlot (CREATE destination) dihapus. CREATE memakai
-// KIT_CREATE_NAME dan ESP32 yang memilih slot kosong sendiri, jadi
-// nomor slot tidak pernah tampil ke user.
+// ----- SELECTION STATE -----
+// SELECTED KIT (kitSelectPurpose + selectedKit) adalah target LOAD/RENAME/
+// DELETE. Ini seleksi LOCAL-ONLY: memutar browser TAK PERNAH mengirim
+// KIT_NEXT/KIT_PREV, jadi tak ada respons UART basi yang bisa menggeser
+// pilihan. Nama kit diambil terpisah via CMD_KIT_INFO(index) yang read-only.
+// G24: targetSlot (destinasi CREATE) dihapus. CREATE memakai KIT_CREATE_NAME
+// dan ESP32 memilih slot kosong sendiri, jadi nomor slot tak pernah tampil
+// ke user.
 
 static KitSelectPurpose kitSelectPurpose = KitSelectPurpose::LOAD;
 static uint8_t selectedKit = 0;
 
 static uint8_t kitSelMinFor(KitSelectPurpose p)
 {
-    // Factory kit (0) is only offered as a LOAD target. CREATE/RENAME/
-    // DELETE only ever operate on writable user slots (1..4).
+    // Factory kit (0) hanya ditawarkan sebagai target LOAD. CREATE/RENAME/
+    // DELETE hanya beroperasi di slot user writable (1..4).
     return (p == KitSelectPurpose::LOAD) ? 0 : UI_MIN_WRITABLE;
 }
 
-// ============================================================
-// CONFIRMATION STATE (KIT_CONFIRM â€” YES/NO)
-// ============================================================
-//
-// Confirmation never auto-executes. CLICK on the current choice:
-//   YES -> run the pending action
-//   NO  -> back to the browser (selection preserved)
-// LONG PRESS / idle -> cancel back to the browser.
+// ----- CONFIRMATION STATE (KIT_CONFIRM — YES/NO) -----
+// Konfirmasi tak pernah auto-execute. CLICK pada pilihan: YES -> jalankan aksi
+// pending; NO -> kembali ke browser (pilihan dipertahankan). LONG PRESS /
+// idle -> batal kembali ke browser.
 
 struct KitConfirmState
 {
@@ -309,8 +282,8 @@ static KitConfirmState confirmState =
 { KitAction::NONE, 0, UIState::KIT_SELECT };
 static uint8_t confirmChoice = 0;   // 0 = YES, 1 = NO
 
-// G11: snapshot nama subjek saat CONFIRM tampil, agar layar
-// konfirmasi tetap name-based walau cache nama berubah.
+// G11: snapshot nama subjek saat CONFIRM tampil, agar layar konfirmasi tetap
+// name-based walau cache nama berubah.
 static char confirmName[KIT_NAME_MAX + 1] = "";
 
 static const char* confirmVerb(KitAction a)
@@ -325,30 +298,24 @@ static const char* confirmVerb(KitAction a)
     }
 }
 
-// ============================================================
-// CREATE METHOD (chosen before the target slot, then kept until
-// the transaction launches).
-// ============================================================
+// ----- CREATE METHOD (dipilih sebelum target slot, dipertahankan sampai transaksi diluncurkan) -----
 
 static KitCreateMethod createMethod = KitCreateMethod::EMPTY;
 
-// ============================================================
-// KIT RENAME EDITOR (TASK 3)
-// ============================================================
+// ----- KIT RENAME EDITOR (TASK 3) -----
 
-// G22: SPACE adalah karakter NAMA yang sah dan harus bisa dipilih
-// sebagai karakter biasa. Nilai yang ditulis ke buffer adalah ' '
-// (0x20) â€” BUKAN underscore '_' dan BUKAN string literal "SPACE".
-// Backend (kitManagerValidateName) sudah menerima spasi di tengah nama
-// dan tetap menolak spasi di ujung, separator path, control character,
-// serta nama kosong setelah trim. Validasi, protocol, dan chunk UART
-// tidak berubah karena karakter ini.
+// G22: SPACE adalah karakter NAMA yang sah dan harus bisa dipilih sebagai
+// karakter biasa. Nilai yang ditulis ke buffer adalah ' ' (0x20) — BUKAN
+// underscore '_' dan BUKAN string literal "SPACE". Backend
+// (kitManagerValidateName) sudah menerima spasi di tengah nama dan tetap
+// menolak spasi di ujung, separator path, control character, serta nama kosong
+// setelah trim. Validasi, protocol, dan chunk UART tidak berubah karena
+// karakter ini.
 static constexpr char KIT_RENAME_SPACE = ' ';
 
-// Ring karakter editor. SPACE menempati slot 0 sehingga duduk tepat
-// sebelum 'A': dari 'A' satu langkah berlawanan arah Jarum Jam sudah
-// menghasilkan spasi asli, dan sel kosong milik SPACE sebagai
-// langkah pertamanya.
+// Ring karakter editor. SPACE menempati slot 0 tepat sebelum 'A': dari 'A'
+// satu langkah mundur sudah menghasilkan spasi asli, dan sel kosong mendapat
+// SPACE sebagai langkah pertamanya.
 static const char KIT_RENAME_ALPHABET[] =
     " ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.";
 
@@ -359,8 +326,7 @@ static constexpr uint8_t KIT_CREATE_NAME_MAX = KIT_NAME_MAX;   // G4
 static char renameBuf[KIT_NAME_MAX + 1] = "";
 static uint8_t renameCursor = 0;
 
-// Posisi karakter di ring, atau -1 bila di luar ring (mis. '\0' pada
-// sel kosong di belakang nama lama).
+// Posisi karakter di ring, atau -1 bila di luar ring (mis. '\0' pada sel kosong di belakang nama lama).
 static int8_t kitRenameIndexOf(char c)
 {
     const int8_t len = (int8_t)(sizeof(KIT_RENAME_ALPHABET) - 1);
@@ -376,11 +342,10 @@ static int8_t kitRenameIndexOf(char c)
     return -1;
 }
 
-// Satu langkah putar pada satu sel editor.
-//   sel berisi karakter ring -> maju/mundur satu slot (wrap).
-//   sel kosong (di luar ring) -> langkah pertama menghasilkan SPACE,
-//   sehingga nama ber-spasi ("ROCK LIVE", "KENDANG JAWA", "KIT TEST
-//   01") bisa diketik tanpa memutar melewati seluruh alfabet.
+// Satu langkah putar pada satu sel editor: sel berisi karakter ring ->
+// maju/mundur satu slot (wrap); sel kosong (di luar ring) -> langkah pertama
+// menghasilkan SPACE, sehingga nama ber-spasi ("ROCK LIVE", "KENDANG JAWA",
+// "KIT TEST 01") bisa diketik tanpa memutar melewati seluruh alfabet.
 static char kitRenameCharAfter(char cur, int8_t dir)
 {
     const int8_t len = (int8_t)(sizeof(KIT_RENAME_ALPHABET) - 1);
@@ -405,8 +370,7 @@ static char kitRenameCharAfter(char cur, int8_t dir)
     return KIT_RENAME_ALPHABET[next];
 }
 
-// Tutup editor: pangkas spasi kanan. Nama kosong setelah trim berarti
-// BATAL, bukan nama yang hanya berisi spasi.
+// Tutup editor: pangkas spasi kanan. Nama kosong setelah trim berarti BATAL, bukan nama berisi spasi.
 static bool kitRenameFinalize()
 {
     size_t n = strlen(renameBuf);
@@ -425,51 +389,39 @@ static bool kitRenameFinalize()
     return true;
 }
 
-// ============================================================
-// PAD UI STATE / SHARED IDLE TIMESTAMP
-// ============================================================
+// ----- PAD UI STATE / SHARED IDLE TIMESTAMP -----
 
 static uint32_t padIdleMs = 0;
 static uint32_t kitNavIdleMs = 0;
 
-
-// ============================================================
-// SHARED KIT NAME EDITOR (G24.15)
-// ============================================================
-
-// Mesin editor di bawah memanggil enter* yang didefinisikan jauh
-// bawah file; prototype-nya dideklarasikan di sini (blok deklarasi
-// umum ada di bawah dan tidak memuat prototype baru ini).
+// ----- SHARED KIT NAME EDITOR (G24.15) -----
+// Mesin editor di bawah memanggil enter* yang didefinisikan jauh di bawah
+// file; prototype-nya dideklarasikan di sini (blok deklarasi umum di bawah
+// tidak memuat prototype baru ini).
 static void enterKitSelect(KitSelectPurpose purpose, bool resetSelection);
 static void enterKitCreate();
 static void enterKitConfirm(KitAction action, uint8_t kit, UIState origin);
 static void enterKitAction(KitAction action, uint8_t kit);
 
 //
-// RENAME dan CREATE memakai SATU mesin editor. Tidak ada lagi
-// "editor versi kedua": buffer, cursor, ring karakter, spasi,
-// penghapusan, dan aturan konfirmasi semuanya hidup di sini.
 //
-// Yang berbeda antar mode hanya tiga parameter:
-//   nameEditMax    panjang maksimum  (RENAME 14, CREATE 28)
-//   blank          sumber nama       (nama lama / nama baru)
-//   nameEditExit   tujuan saat editor ditutup
-//
+// RENAME dan CREATE memakai SATU mesin editor; tidak ada lagi "editor versi
+// kedua": buffer, cursor, ring karakter, spasi, penghapusan, dan aturan
+// konfirmasi semuanya hidup di sini. Yang berbeda antar mode hanya tiga
+// parameter: nameEditMax (panjang maks: RENAME 14, CREATE 28), blank (sumber
+// nama: lama/baru), nameEditExit (tujuan saat editor ditutup).
 // Aturan navigasi — IDENTIK untuk RENAME dan CREATE:
-//   putar  -> ganti karakter pada sel cursor
-//             sel kosong ('\0') dan spasi berada di ring yang sama;
-//             satu langkah MUNDUR dari 'A' menghasilkan spasi, jadi
-//             memutar ke spasi = menghapus karakter (backspace)
-//   klik   -> maju satu sel; di sel terakhir = SELESAI
-//   tahan  -> batal, kembali ke layar sebelumnya
-//   diam   -> batal (KIT_IDLE_BACK_MS)
-//
-// G24.15 — bug yang diperbaiki: CREATE lama memakai heuristik
-// "restEmpty" yang menutup editor begitu cursor mendarat di sel
-// spasi. Akibatnya (1) spasi di tengah nama mustahil diketik,
-// (2) nama terpotong diam-diam tanpa user realizes, (3) screen
-// dan aturan navigasi beda dari RENAME sehingga terasa "aneh".
-// Heuristik itu dihapus; CREATE kini memakai aturan RENAME.
+//   putar -> ganti karakter pada sel cursor (sel kosong '\0' dan spasi di ring
+//            yang sama; satu langkah MUNDUR dari 'A' = spasi, jadi memutar ke
+//            spasi = menghapus karakter / backspace)
+//   klik  -> maju satu sel; di sel terakhir = SELESAI
+//   tahan -> batal, kembali ke layar sebelumnya
+//   diam  -> batal (KIT_IDLE_BACK_MS)
+// G24.15 — bug yang diperbaiki: CREATE lama memakai heuristik "restEmpty" yang
+// menutup editor begitu cursor mendarat di sel spasi. Akibatnya (1) spasi di
+// tengah nama mustahil diketik, (2) nama terpotong diam-diam tanpa disadari
+// user, (3) screen dan aturan navigasi beda dari RENAME. Heuristik itu dihapus;
+// CREATE kini memakai aturan RENAME.
 
 enum class NameEditorExit : uint8_t
 {
@@ -508,9 +460,9 @@ static void enterNameEditor(
 
     if (blank)
     {
-        // Sel kosong = '\0', persis model RENAME untuk nama kosong.
-        // kitRenameCharAfter('\0', *) mengembalikan spasi, jadi sel
-        // kosong bisa diisi tanpa memutar melewati separuh alfabet.
+        // Sel kosong = '\0', persis model RENAME untuk nama kosong;
+        // kitRenameCharAfter('\0', *) mengembalikan spasi, jadi sel kosong
+        // bisa diisi tanpa memutar melewati separuh alfabet.
         memset(renameBuf, 0, nameEditMax + 1);
     }
     else
@@ -524,8 +476,8 @@ static void enterNameEditor(
         }
         else
         {
-            // G11: jangan pernah prefill "KIT %02u" — nomor slot
-            // dilarang tampil di layar. Editor mulai kosong.
+            // G11: jangan pernah prefill "KIT %02u" — nomor slot dilarang
+            // tampil di layar. Editor mulai kosong.
             memset(renameBuf, 0, nameEditMax + 1);
         }
     }
@@ -557,9 +509,8 @@ static void handleNameEditor()
     {
         kitNavIdleMs = now;
 
-        // Memutar ke spasi = menghapus karakter pada sel itu
-        // (spasi di ujung dipangkas kitRenameFinalize, spasi di
-        // tengah dipertahankan sebagai bagian nama).
+        // Memutar ke spasi = menghapus karakter pada sel itu (spasi di ujung
+        // dipangkas kitRenameFinalize, spasi di tengah dipertahankan).
         renameBuf[renameCursor] = kitRenameCharAfter(
             renameBuf[renameCursor],
             (delta > 0) ? 1 : -1);
@@ -611,23 +562,17 @@ static void handleNameEditor()
     }
 }
 
-// ============================================================
-// PAD EDIT FIELD MODEL (G9)
-// ============================================================
-//
-// Satu lapisan konfigurasi editor numerik: mapping UI -> field
-// protokol + rentang DISPLAY. Rentang ini adalah rentang transport
-// 16-bit; batas otoritatif (PAD_FIELD_MIN/MAX) tetap di config.h
-// (ESP32) dan backend tetap memvalidasi (mis. RELEASE < THRESHOLD
-// -> RESP_INVALID_VALUE). Editor tidak melewati rentang ini sehingga
-// user tidak bisa masuk kombinasi yang jelas-jelas mustahil.
-//
-// Catatan rentang:
-//   - RELEASE 4094 (bukan 4095): invariant release < threshold, dan
-//     threshold <= 4095.
-//   - RELEASE STABLE 65535 (bukan 100000): batas transport frame
-//     UART 16-bit; nilai otoritatif 100000 tidak bisa dikirim lewat
-//     PAD_SET/PAD_GET (lihat G8 report â€” KNOWN LIMITATIONS).
+// ----- PAD EDIT FIELD MODEL (G9) -----
+// Satu lapisan konfigurasi editor numerik: mapping UI -> field protokol +
+// rentang DISPLAY. Rentang ini adalah rentang transport 16-bit; batas
+// otoritatif (PAD_FIELD_MIN/MAX) tetap di config.h (ESP32) dan backend tetap
+// memvalidasi (mis. RELEASE < THRESHOLD -> RESP_INVALID_VALUE). Editor tidak
+// melewati rentang ini sehingga user tak bisa memasukkan kombinasi yang
+// jelas-jelas mustahil.
+// Catatan rentang: RELEASE 4094 (bukan 4095) karena invariant release <
+// threshold dan threshold <= 4095; RELEASE STABLE 65535 (bukan 100000) karena
+// batas transport frame UART 16-bit — nilai otoritatif 100000 tak bisa dikirim
+// lewat PAD_SET/PAD_GET (lihat G8 report — KNOWN LIMITATIONS).
 
 struct PadValueField
 {
@@ -653,15 +598,11 @@ constexpr uint16_t PAD_VALUE_CMD_TIMEOUT_MS = 2500;
 // Berapa lama layar hasil pad ditahan sebelum kembali ke sub-list.
 constexpr uint16_t PAD_RESULT_HOLD_MS = 1500;
 
-// ============================================================
-// PAD VALUE EDITOR (G9)
-// ============================================================
-//
-// Alur (wajib per G9, jangan pernah mengasumsikan PAD_SET sukses):
-//   GET nilai saat ini -> display -> user edit -> PAD_SET -> respon
-//   -> GET nilai efektif -> update UI. Respon selain OK / timeout
-//   menampilkan kegagalan jujur (INVALID / BUSY / TIMEOUT) dan TIDAK
-//   pernah berpura-pura nilai berubah.
+// ----- PAD VALUE EDITOR (G9) -----
+// Alur (wajib per G9, jangan pernah mengasumsikan PAD_SET sukses): GET nilai
+// saat ini -> display -> user edit -> PAD_SET -> respon -> GET nilai efektif
+// -> update UI. Respons selain OK/timeout menampilkan kegagalan jujur
+// (INVALID/BUSY/TIMEOUT) dan TIDAK pernah berpura-pura nilai berubah.
 
 enum class PadValuePhase : uint8_t
 {
@@ -683,26 +624,21 @@ static uint8_t padValueResultKind = 0;    // 1=ok, 3=failed, 4=timeout
 static bool padValueBusy = false;         // respon RESP_BUSY
 static bool padValueNameInvalid = false;  // respon RESP_INVALID_VALUE
 
-// Akselerasi putar (G9): putaran cepat dalam jendela 1.2 s menaikkan
-// step 1 -> 10 -> 100 tanpa pernah melompat liar (diterapkan lewat
-// perubahan +6 delta dari encoder yang sudah di-clamp Â±8 per poll).
+// Akselerasi putar (G9): putaran cepat dalam jendela 1.2 s menaikkan step
+// 1 -> 10 -> 100 tanpa pernah melompat liar (diterapkan lewat perubahan delta
+// encoder yang sudah di-clamp ±8 per poll).
 static uint32_t padValueSpinMs = 0;
 static uint16_t padValueSpinAccum = 0;
 
-// ============================================================
-// PAD SOUND (daftar WAV kit aktif, KIT RUNTIME)
-// ============================================================
-//
-// Daftar suara = scan folder samples kit AKTIF (sorted; mapping by
-// FILENAME, bukan index). Ditarik SEGAR setiap masuk (tidak ada
-// cache yang bisa basi), plus penjaga generasi padCacheGen yang
-// dinaikkan saat kit aktif berubah (LOAD sukses / DELETE aktif
-// fallback) supaya daftar dari kit lama tidak pernah tampil sebagai
-// daftar kit baru.
-//
-// Alur: request daftar (CMD_PAD_SOUND, ARG0=pad) -> BROWSE
-// (cursor awal = currentIndex dari header daftar) -> OK kirim
-// CMD_PAD_SOUND_SET (nama file terpilih) -> respon status -> hasil.
+// ----- PAD SOUND (daftar WAV kit aktif, KIT RUNTIME) -----
+// Daftar suara = scan folder samples kit AKTIF (sorted; mapping by FILENAME,
+// bukan index). Ditarik SEGAR setiap masuk (tanpa cache yang bisa basi), plus
+// penjaga generasi padCacheGen yang dinaikkan saat kit aktif berubah (LOAD
+// sukses / DELETE aktif fallback) agar daftar kit lama tak pernah tampil
+// sebagai daftar kit baru.
+// Alur: request daftar (CMD_PAD_SOUND, ARG0=pad) -> BROWSE (cursor awal =
+// currentIndex dari header daftar) -> OK kirim CMD_PAD_SOUND_SET (nama file
+// terpilih) -> respons status -> hasil.
 
 enum class PadSoundPhase : uint8_t
 {
@@ -727,9 +663,7 @@ static uint8_t padSoundGenAtRequest = 0;  // padCacheGen saat daftar diminta
 // Generasi cache PAD; dinaikkan setiap kit aktif berubah.
 static uint8_t padCacheGen = 0;
 
-// ============================================================
-// Forward declarations
-// ============================================================
+// ----- Forward declarations -----
 
 static void handleBoot();
 static void handleInit();
@@ -772,9 +706,7 @@ static void enterCheckConnection();
 static void renderKitActionResult();
 static void showActionResultName();
 
-// ============================================================
-// BOOT
-// ============================================================
+// ----- BOOT -----
 
 static void handleBoot()
 {
@@ -813,20 +745,17 @@ static void handleBoot()
     }
 }
 
-// ============================================================
-// INIT
-// ============================================================
+// ----- INIT -----
 
 static void handleInit()
 {
     uint32_t now = millis();
 
-    // G22: progress boot ditampilkan sebagai STEP, bukan titik-titik
-    // berkedip. Step hanya maju selama handshake PING yang SEDANG
-    // berjalan; ini murni presentasi dan tidak menambah waktu boot,
-    // tidak menahan PING, dan tidak mengubah urutan inisialisasi.
-    // PING OK -> langsung lompat ke layar READY, berapa pun step
-    // yang sempat tampil.
+    // G22: progress boot ditampilkan sebagai STEP, bukan titik-titik berkedip.
+    // Step hanya maju selama handshake PING yang SEDANG berjalan; ini murni
+    // presentasi — tidak menambah waktu boot, tidak menahan PING, dan tidak
+    // mengubah urutan inisialisasi. PING OK -> langsung lompat ke layar READY,
+    // berapa pun step yang sempat tampil.
     uint8_t step = (uint8_t)((now - initStartMs) / BOOT_STEP_MS);
 
     if (step >= BOOT_STEP_COUNT)
@@ -902,9 +831,7 @@ static void handleInit()
     }
 }
 
-// ============================================================
-// READY
-// ============================================================
+// ----- READY -----
 
 static void enterReady()
 {
@@ -923,9 +850,7 @@ static void handleReady()
     }
 }
 
-// ============================================================
-// CHECK CONNECTION
-// ============================================================
+// ----- CHECK CONNECTION -----
 
 static void enterCheckConnection()
 {
@@ -956,9 +881,7 @@ static void handleCheckConn()
     }
 }
 
-// ============================================================
-// MAIN (home status screen â€” ACTIVE KIT)
-// ============================================================
+// ----- MAIN (home status screen — ACTIVE KIT) -----
 
 static void enterMain()
 {
@@ -979,9 +902,9 @@ static void handleMain()
 {
     uint32_t now = millis();
 
-    // G13: consume hasil KIT_INFO yang sudah lengkap DULU, baru
-    // request berikutnya (kalau masih dibutuhkan). Urutan lama
-    // (request dulu) menghancurkan paket saat masih livelock.
+    // G13: consume hasil KIT_INFO yang sudah lengkap DULU, baru request
+    // berikutnya (kalau masih dibutuhkan). Urutan lama (request dulu)
+    // menghancurkan paket saat masih livelock.
     if (pollKitName(activeKit))
     {
         if constexpr (KIT_NAME_DEBUG)
@@ -1047,9 +970,7 @@ static void handleMain()
     }
 }
 
-// ============================================================
-// MENU (top level: KIT / PAD)
-// ============================================================
+// ----- MENU (top level: KIT / PAD) -----
 
 static void enterMenu()
 {
@@ -1084,7 +1005,7 @@ static void handleMenu()
     {
         encoderFlush();
 
-        // G24: hanya dua entri â€” KIT dan PAD.
+        // G24: hanya dua entri — KIT dan PAD.
         switch (menuGetTopIndex())
         {
             case 0: // KIT
@@ -1096,8 +1017,8 @@ static void handleMenu()
                 break;
 
             default:
-                // Defensif: index di luar daftar (mis. cursor rusak)
-                // kembali ke home, tidak pernah menggantung di layar.
+                // Defensif: index di luar daftar (mis. cursor rusak) -> kembali
+                // ke home, tidak pernah menggantung di layar.
                 enterMain();
                 break;
         }
@@ -1109,13 +1030,10 @@ static void handleMenu()
     }
 }
 
-// ============================================================
-// KIT (action list: LOAD / CREATE / RENAME / DELETE / SAVE / BACK)
-// ============================================================
-//
-// This is the direct child of MENU -> KIT. LOAD/RENAME/DELETE lead to
-// SELECT KIT; CREATE leads to method -> name editor (ESP32 picks the
-// slot); SAVE acts on the ACTIVE kit immediately.
+// ----- KIT (action list: LOAD / CREATE / RENAME / DELETE / SAVE / BACK) -----
+// Anak langsung MENU -> KIT. LOAD/RENAME/DELETE menuju SELECT KIT; CREATE
+// menuju method -> name editor (ESP32 memilih slot); SAVE langsung bekerja
+// pada kit AKTIF.
 
 static void enterKit()
 {
@@ -1196,20 +1114,14 @@ static void handleKit()
     }
 }
 
-// ============================================================
-// KIT SELECT (SELECT KIT browser)
-// ============================================================
-//
-// Local-only selection: rotation moves the on-screen cursor without any
-// KIT_NEXT/KIT_PREV round-trip, so selection can NEVER be moved by a
-// stale/late UART response. The kit name is fetched separately via the
-// read-only CMD_KIT_INFO(index).
-//
-// CLICK depends on why we entered:
-//   LOAD   -> KIT_CONFIRM (LOAD KIT XX? YES/NO)
-//   RENAME -> KIT_RENAME editor
-//   DELETE -> KIT_CONFIRM (DELETE KIT XX? YES/NO)
-// LONG PRESS -> back to KIT action list.
+// ----- KIT SELECT (SELECT KIT browser) -----
+// Seleksi local-only: rotasi menggerakkan kursor layar tanpa round-trip
+// KIT_NEXT/KIT_PREV, jadi pilihan TAK PERNAH bisa digeser respons UART
+// basi/terlambat. Nama kit diambil terpisah via CMD_KIT_INFO(index) yang
+// read-only.
+// CLICK tergantung alasan masuk: LOAD -> KIT_CONFIRM ("LOAD <nama>?" YES/NO);
+// RENAME -> editor KIT_RENAME; DELETE -> KIT_CONFIRM ("DELETE <nama>?" YES/NO).
+// LONG PRESS -> kembali ke daftar aksi KIT.
 
 static void enterKitSelect(
     KitSelectPurpose purpose,
@@ -1242,8 +1154,8 @@ static void handleKitSelect()
 {
     uint32_t now = millis();
 
-    // G13: consume hasil yang sudah lengkap dulu, baru request
-    // request berikutnya bila masih dibutuhkan (anti-livelock).
+    // G13: consume hasil yang sudah lengkap dulu, baru request berikutnya bila
+    // masih dibutuhkan (anti-livelock).
     if (pollKitName(selectedKit))
     {
         screenShowKitSelect(selectedKit, kitNameFor(selectedKit));
@@ -1288,9 +1200,9 @@ static void handleKitSelect()
                 break;
 
             case KitSelectPurpose::RENAME:
-                // G11: jangan buka editor dengan nama kosong (atau
-                // fallback angka slot). Tunggu nama subjek termuat di
-                // cache KIT_INFO dulu â€” LCD wajib name-based (Â§3/Â§6).
+                // G11: jangan buka editor dengan nama kosong (atau fallback
+                // angka slot). Tunggu nama subjek termuat di cache KIT_INFO
+                // dulu — LCD wajib name-based (§3/§6).
                 if (kitNameFor(selectedKit) &&
                     kitNameFor(selectedKit)[0] != '\0')
                 {
@@ -1320,12 +1232,8 @@ static void handleKitSelect()
     }
 }
 
-// ============================================================
-// KIT CREATE (method: EMPTY / COPY CURRENT / BACK)
-// ============================================================
-//
-// Purpose is ONLY to choose the method. No target kit/slot is involved
-// yet â€” that happens on the SELECT SLOT screen.
+// ----- KIT CREATE (method: EMPTY / COPY CURRENT / BACK) -----
+// Tujuannya HANYA memilih method; slot target dipilih ESP32 sendiri (G4).
 
 static void enterKitCreate()
 {
@@ -1394,16 +1302,11 @@ static void handleKitCreate()
     }
 }
 
-// ============================================================
-// CREATE WITH NAME (G4) â€” memakai SHARED NAME EDITOR (G24.15)
-// ============================================================
-//
-// User mengetik nama kit secara langsung â€” konsep slot TIDAK
-// pernah terlihat (ESP32 memilih slot kosong sendiri).
-//
-// G24.15: logika editor TIDAK lagi hidup di sini. Fungsi di bawah
-// hanya "adapter" tipis: menulis state/parameter lalu melepas
-// seluruh pekerjaan ke handleNameEditor() yang sama dengan
+// ----- CREATE WITH NAME (G4) — memakai SHARED NAME EDITOR (G24.15) -----
+// User mengetik nama kit langsung — konsep slot TIDAK pernah terlihat (ESP32
+// memilih slot kosong sendiri). G24.15: logika editor TIDAK lagi hidup di
+// sini; fungsi di bawah hanya "adapter" tipis yang menulis state/parameter
+// lalu melepas seluruh pekerjaan ke handleNameEditor() yang sama dengan
 // RENAME. Tidak ada editor cursor/buffer/karakter versi kedua.
 
 static void enterKitCreateName(bool resetName)
@@ -1430,8 +1333,8 @@ static void enterKitConfirm(
     confirmState.origin = origin;
     confirmChoice = 0;
 
-    // G11: snapshot nama subjek (bukan angka slot) untuk layar
-    // konfirmasi. Cache boleh berubah selama layar tampil.
+    // G11: snapshot nama subjek (bukan angka slot) untuk layar konfirmasi.
+    // Cache boleh berubah selama layar tampil.
     const char* nm = kitNameFor(kit);
     if (nm && nm[0] != '\0')
     {
@@ -1449,8 +1352,8 @@ static void enterKitConfirm(
     redrawConfirm();
 }
 
-// Redraw KIT_CONFIRM: tanpa angka kit â€” name-based (G11 Â§3). Nama
-// belum termuat -> baris verb-only "LOAD?"/"DELETE?".
+// Redraw KIT_CONFIRM: tanpa angka kit — name-based (G11 §3). Nama belum
+// termuat -> baris verb-only "LOAD?"/"DELETE?".
 static void redrawConfirm()
 {
     if (isNamedCreate(confirmState.action) || confirmName[0] == '\0')
@@ -1466,8 +1369,8 @@ static void redrawConfirm()
     }
 }
 
-// Kembali dari KIT_CONFIRM sesuai asal (cancel / NO). Untuk CREATE
-// bernama kembali ke editor nama dgn nama yang dipertahankan.
+// Kembali dari KIT_CONFIRM sesuai asal (cancel/NO). Untuk CREATE bernama
+// kembali ke editor nama dengan nama yang dipertahankan.
 static void confirmCancelBack()
 {
     if (confirmState.origin == UIState::KIT_CREATE_NAME)
@@ -1529,15 +1432,11 @@ static void handleKitConfirm()
     }
 }
 
-// KIT RENAME EDITOR — adapter ke SHARED NAME EDITOR (G24.15)
-// ============================================================
-//
-// RENAME adalah baseline yang sudah terbukti normal, jadi ia
-// yang mendefinisikan shared engine. CREATE memakai mesin yang
-// sama dengan max 28 (lihat enterKitCreateName).
-//
-// Perbedaan RENAME vs CREATE hanya tiga parameter: max length
-// (14 vs 28), sumber nama (nama lama vs baru), dan asal kembali.
+// ----- KIT RENAME EDITOR — adapter ke SHARED NAME EDITOR (G24.15) -----
+// RENAME adalah baseline yang sudah terbukti normal, jadi ia yang
+// mendefinisikan shared engine; CREATE memakai mesin yang sama dengan max 28
+// (lihat enterKitCreateName). Perbedaan RENAME vs CREATE hanya tiga parameter:
+// max length (14 vs 28), sumber nama (lama vs baru), dan asal kembali.
 
 static void enterKitRename()
 {
@@ -1551,9 +1450,7 @@ static void handleKitRename()
     handleNameEditor();
 }
 
-// ============================================================
-// KIT ACTION (LOAD / SAVE / CREATE / DELETE / RENAME)
-// ============================================================
+// ----- KIT ACTION (LOAD / SAVE / CREATE / DELETE / RENAME) -----
 
 static void enterKitAction(KitAction action, uint8_t kit)
 {
@@ -1573,9 +1470,8 @@ static void enterKitAction(KitAction action, uint8_t kit)
 
     encoderFlush();
 
-    // G11: seluruh aksi memakai layout verb-only (nomor slot tidak
-    // boleh tampil di layar progress). Nama subjek di-snapshot untuk
-    // layar hasil name-based.
+    // G11: seluruh aksi memakai layout verb-only (nomor slot tak boleh tampil
+    // di layar progress). Nama subjek di-snapshot untuk layar hasil name-based.
     const char* nm = kitNameFor(kit);
     if (nm && nm[0] != '\0')
     {
@@ -1623,8 +1519,8 @@ static uint8_t kitVisualPercent(
 
 static void renderKitActionResult()
 {
-    // G11: layar hasil name-based â€” judul = snapshot nama subjek
-    // (atau nama BARU setelah RENAME sukses); status = kelas error.
+    // G11: layar hasil name-based — judul = snapshot nama subjek (atau nama
+    // BARU setelah RENAME sukses); status = kelas error.
     switch (kitActionResultKind)
     {
         case 1:  // ok
@@ -1675,8 +1571,8 @@ static void renderKitActionResult()
             }
             else if (kitActionNoSpace)
             {
-                // G24.15: ruang kit habis. Say something honest and
-                // specific — never let this masquerade as BUSY.
+                // G24.15: ruang kit habis — katakan jujur dan spesifik; jangan
+                // pernah menyamar sebagai BUSY.
                 if (isNamedCreate(kitActiveAction))
                 {
                     screenShowActionResult("NO SPACE", "ALL KITS FULL");
@@ -1688,7 +1584,7 @@ static void renderKitActionResult()
             }
             else if (kitActionBusy)
             {
-                // G11 Â§11: BUSY tidak layak diubah jadi FAILED generik.
+                // G11 §11: BUSY tidak layak diubah jadi FAILED generik.
                 if (isNamedCreate(kitActiveAction))
                 {
                     screenShowActionResult("KIT CREATED", "BUSY");
@@ -1717,7 +1613,7 @@ static void renderKitActionResult()
     }
 }
 
-// Nama ditolak karena sudah dipakai kit lain â€” tampil tanpa angka kit
+// Nama ditolak karena sudah dipakai kit lain — tampil tanpa angka kit
 // (name-based, G11): judul = nama subjek, status = kelas error.
 static void showActionResultName()
 {
@@ -1735,9 +1631,7 @@ static void handleKitAction()
 {
     uint32_t now = millis();
 
-    // --------------------------------------------------------
-    // Send command once
-    // --------------------------------------------------------
+    // Kirim command sekali.
 
     if (!kitActionSent)
     {
@@ -1789,9 +1683,7 @@ static void handleKitAction()
         return;
     }
 
-    // --------------------------------------------------------
-    // Wait for matching response (with progress animation)
-    // --------------------------------------------------------
+    // Tunggu respons yang cocok (dengan animasi progress).
 
     if (kitActionPending)
     {
@@ -1841,14 +1733,12 @@ static void handleKitAction()
                             }
                             activeKitKnown = true;
 
-                            // Daftar/suara contoh pad TIDAK boleh basi
-                            // setelah pindah kit.
+                            // Daftar/suara pad TIDAK boleh basi setelah pindah kit.
                             padCacheGen++;
                             break;
 
                         case KitAction::DELETE:
-                            // Backend menjamin fallback ke kit factory
-                            // ketika kit AKTIF dihapus (kit_manager.cpp).
+                            // Backend menjamin fallback ke kit factory ketika kit AKTIF dihapus (kit_manager.cpp).
                             if (kitSubject == activeKit)
                             {
                                 activeKit = UI_FACTORY_KIT;
@@ -1857,22 +1747,20 @@ static void handleKitAction()
                             break;
 
                         default:
-                            // CREATE / SAVE / RENAME tidak mengubah
-                            // ACTIVE KIT.
+                            // CREATE / SAVE / RENAME tidak mengubah ACTIVE KIT.
                             break;
                     }
 
-                    // Name cache di-refresh agar setiap perubahan nama/
-                    // isi terlihat di layar berikutnya.
+                    // Name cache di-refresh agar setiap perubahan nama/isi terlihat di layar berikutnya.
                     invalidateKitName();
                 }
                 else
                 {
                     kitActionResultKind = 3;
 
-                    // G24.15: NO SPACE diperiksa lebih dulu — saat
-                    // semua slot user terisi, backend tidak pernah
-                    // mengirim BUSY, jadi tidak ada tumpang tindih.
+                    // G24.15: NO SPACE diperiksa lebih dulu — saat semua slot
+                    // user terisi, backend tak pernah mengirim BUSY, jadi tak
+                    // ada tumpang tindih.
                     kitActionNoSpace = (resp.status == RESP_NO_SPACE);
 
                     kitActionBusy =
@@ -1913,9 +1801,7 @@ static void handleKitAction()
         return;
     }
 
-    // --------------------------------------------------------
-    // Result hold
-    // --------------------------------------------------------
+    // Tahan hasil.
 
     if (encoderPressed())
     {
@@ -1935,9 +1821,7 @@ static void handleKitAction()
     }
 }
 
-// ============================================================
-// PAD BROWSER (PAD 01 .. PAD 12)
-// ============================================================
+// ----- PAD BROWSER (PAD 01 .. PAD 12) -----
 
 static void enterPadSelect()
 {
@@ -1987,9 +1871,7 @@ static void handlePadSelect()
     }
 }
 
-// ============================================================
-// PAD EDIT (per-pad parameter groups)
-// ============================================================
+// ----- PAD EDIT (per-pad parameter groups) -----
 
 static void enterPadEdit()
 {
@@ -2059,9 +1941,7 @@ static void handlePadEdit()
     }
 }
 
-// ============================================================
-// PAD SUB-LISTS (MAPPING / TRIGGER parameter groups)
-// ============================================================
+// ----- PAD SUB-LISTS (MAPPING / TRIGGER parameter groups) -----
 
 static void enterPadMapping()
 {
@@ -2142,8 +2022,7 @@ static void handlePadSubList(uint8_t listId)
         }
         else if (listId == MENU_LIST_PAD_TRIGGER)
         {
-            // TRIGGER list meniru slot TRIGGER_FIELD_IDX di
-            // PAD_VALUE_FIELDS[1..5] secara berurutan.
+            // TRIGGER list meniru slot TRIGGER_FIELD_IDX di PAD_VALUE_FIELDS[1..5] secara berurutan.
             static const uint8_t TRIGGER_FIELD_IDX[] = { 1, 2, 3, 4, 5 };
 
             if (idx < sizeof(TRIGGER_FIELD_IDX) / sizeof(TRIGGER_FIELD_IDX[0]))
@@ -2162,15 +2041,11 @@ static void handlePadSubList(uint8_t listId)
     }
 }
 
-// ============================================================
-// PAD SOUND (daftar suara kit aktif, G9)
-//
-// padSoundResultKind:
-//   1 = OK        3 = gagal set (BUSY / INVALID)
-//   4 = TIMEOUT   5 = kit aktif tidak punya file WAV sama sekali
-// G24: kind 5 dipisah dari "INVALID" supaya folder kosong dilaporkan
-// jujur sebagai NO SAMPLES, bukan error generik.
-// ============================================================
+// ----- PAD SOUND (daftar suara kit aktif, G9) -----
+// padSoundResultKind: 1 = OK, 3 = gagal set (BUSY/INVALID), 4 = TIMEOUT,
+// 5 = kit aktif tak punya file WAV sama sekali. G24: kind 5 dipisah dari
+// "INVALID" agar folder kosong dilaporkan jujur sebagai NO SAMPLES, bukan
+// error generik.
 
 static void showPadSoundResult()
 {
@@ -2212,9 +2087,9 @@ static void enterPadSound()
 
     screenShowPadSoundLoading(menuGetPadIndex());
 
-    // Satu request: daftar WAV kit aktif utk pad ini. Current index
-    // suara pad dikirim ESP32 di header daftar (ARG3) â€” tidak perlu
-    // PAD_GET FIELD_SAMPLE_ID lagi (mapping by filename).
+    // Satu request: daftar WAV kit aktif utk pad ini. Current index suara pad
+    // dikirim ESP32 di header daftar (ARG3) — tak perlu PAD_GET
+    // FIELD_SAMPLE_ID lagi (mapping by filename).
     uartPadSoundRequest(menuGetPadIndex());
 }
 
@@ -2222,13 +2097,11 @@ static void handlePadSound()
 {
     uint32_t now = millis();
 
-    // --------------------------------------------------------
-    // LOAD: kumpulkan daftar (+ current index dari header)
-    // --------------------------------------------------------
+    // LOAD: kumpulkan daftar (+ current index dari header).
     if (padSoundPhase == PadSoundPhase::LOAD)
     {
-        // Kit aktif berubah di tengah pembacaan -> daftar lama tidak
-        // sah; minta ulang supaya daftar selalu dari kit saat ini.
+        // Kit aktif berubah di tengah pembacaan -> daftar lama tak sah; minta
+        // ulang agar daftar selalu dari kit saat ini.
         if (padCacheGen != padSoundGenAtRequest)
         {
             padSoundGenAtRequest = padCacheGen;
@@ -2263,9 +2136,9 @@ static void handlePadSound()
 
         if (padSoundListLoaded)
         {
-            // Jumlah entri = yang ter-scan (folder samples), bukan
-            // konstanta pad. Kosongkan nama "kosong" di luar rentang
-            // supaya tidak pernah tampil.
+            // Jumlah entri = yang ter-scan (folder samples), bukan konstanta
+            // pad. Nama "kosong" di luar rentang dikosongkan agar tak pernah
+            // tampil.
             uint8_t i = 0;
 
             while (padSoundNames[i][0] != '\0' && i < PAD_SOUND_COUNT)
@@ -2277,8 +2150,8 @@ static void handlePadSound()
 
             if (padSoundCount == 0)
             {
-                // Kit aktif tidak punya WAV di folder samples.
-                // Laporkan apa adanya, jangan pretend success.
+                // Kit aktif tak punya WAV di folder samples — laporkan apa
+                // adanya, jangan pretend success.
                 padSoundResultKind = 5;
                 padSoundBusy = false;
                 padSoundPhase = PadSoundPhase::RESULT;
@@ -2307,9 +2180,7 @@ static void handlePadSound()
         return;
     }
 
-    // --------------------------------------------------------
-    // BROWSE: pilih suara (index list == nama file bernama)
-    // --------------------------------------------------------
+    // BROWSE: pilih suara (index list == nama file).
     if (padSoundPhase == PadSoundPhase::BROWSE)
     {
         if (encoderLongPressed())
@@ -2367,9 +2238,7 @@ static void handlePadSound()
         return;
     }
 
-    // --------------------------------------------------------
-    // WRITE: tunggu respon PAD_SOUND_SET (satu frame status)
-    // --------------------------------------------------------
+    // WRITE: tunggu respons PAD_SOUND_SET (satu frame status).
     if (padSoundPhase == PadSoundPhase::WRITE)
     {
         int8_t idx = uartFindResponse(
@@ -2411,9 +2280,7 @@ static void handlePadSound()
         return;
     }
 
-    // --------------------------------------------------------
-    // RESULT: tahan singkat, auto-kembali ke PAD_EDIT
-    // --------------------------------------------------------
+    // RESULT: tahan singkat, auto-kembali ke PAD_EDIT.
     if (encoderPressed())
     {
         encoderFlush();
@@ -2433,9 +2300,7 @@ static void handlePadSound()
     }
 }
 
-// ============================================================
-// PAD VALUE (editor numerik satu field, G9)
-// ============================================================
+// ----- PAD VALUE (editor numerik satu field, G9) -----
 
 static void showPadValueResult()
 {
@@ -2511,9 +2376,7 @@ static void handlePadValue()
     uint32_t now = millis();
     const PadValueField& fld = PAD_VALUE_FIELDS[padValueFieldIdx];
 
-    // --------------------------------------------------------
-    // READ: tunggu nilai saat ini
-    // --------------------------------------------------------
+    // READ: tunggu nilai saat ini.
     if (padValuePhase == PadValuePhase::READ)
     {
         if (uartPadGetAvailable())
@@ -2552,9 +2415,7 @@ static void handlePadValue()
         return;
     }
 
-    // --------------------------------------------------------
-    // EDIT
-    // --------------------------------------------------------
+    // EDIT.
     if (padValuePhase == PadValuePhase::EDIT)
     {
         if (encoderLongPressed())
@@ -2570,8 +2431,7 @@ static void handlePadValue()
         {
             padIdleMs = now;
 
-            // Akselerasi putar: run cepat dalam jendela 1.2 s
-            // menaikkan step 1 -> 10 -> 100.
+            // Akselerasi putar: run cepat dalam jendela 1.2 s menaikkan step 1 -> 10 -> 100.
             if (now - padValueSpinMs >= 1200)
             {
                 padValueSpinAccum = 0;
@@ -2630,9 +2490,7 @@ static void handlePadValue()
         return;
     }
 
-    // --------------------------------------------------------
-    // WRITE: tunggu respon PAD_SET di FIFO umum
-    // --------------------------------------------------------
+    // WRITE: tunggu respons PAD_SET di FIFO umum.
     if (padValuePhase == PadValuePhase::WRITE)
     {
         int8_t idx = uartFindResponse(
@@ -2676,9 +2534,7 @@ static void handlePadValue()
         return;
     }
 
-    // --------------------------------------------------------
-    // READBACK: tunggu nilai efektif, lalu tampilkan hasil
-    // --------------------------------------------------------
+    // READBACK: tunggu nilai efektif, lalu tampilkan hasil.
     if (padValuePhase == PadValuePhase::READBACK)
     {
         if (uartPadGetAvailable())
@@ -2702,9 +2558,7 @@ static void handlePadValue()
         return;
     }
 
-    // --------------------------------------------------------
-    // RESULT: tahan singkat, auto-kembali ke sub-list asal
-    // --------------------------------------------------------
+    // RESULT: tahan singkat, auto-kembali ke sub-list asal.
     if (encoderPressed())
     {
         encoderFlush();
@@ -2724,9 +2578,7 @@ static void handlePadValue()
     }
 }
 
-// ============================================================
-// UI INIT / UPDATE
-// ============================================================
+// ----- UI INIT / UPDATE -----
 
 void uiInit()
 {
@@ -2810,9 +2662,7 @@ void uiInit()
     padSoundGenAtRequest = 0;
 }
 
-// ============================================================
-// UI UPDATE
-// ============================================================
+// ----- UI UPDATE -----
 
 void uiUpdate()
 {
@@ -2907,7 +2757,7 @@ void uiUpdate()
             break;
     }
 
-    // Periodic PING only in MAIN (health check on the home screen).
+    // PING periodik hanya di MAIN (health check di home screen).
     if (uiState == UIState::MAIN &&
         now - lastPingMs >= PING_INTERVAL_MS)
     {
@@ -2916,7 +2766,7 @@ void uiUpdate()
         uartSendPing();
     }
 
-    // Consume PING responses outside the INIT/CHECK_CONN handshake.
+    // Konsumsi respons PING di luar handshake INIT/CHECK_CONN.
     if (uiState != UIState::INIT &&
         uiState != UIState::CHECK_CONN)
     {
@@ -2924,9 +2774,7 @@ void uiUpdate()
     }
 }
 
-// ============================================================
-// CURRENT UI STATE
-// ============================================================
+// ----- CURRENT UI STATE -----
 
 UIState uiGetCurrentState()
 {

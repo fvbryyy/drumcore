@@ -16,36 +16,30 @@ namespace
     // G25: TIDAK ADA LAGI SATU BLOK PSRAM KONTIGU BESAR
     // ======================================================
     //
-    // SEBELUMNYA kit memuat seluruh PCM-nya ke SATU blok
-    // ps_malloc(totalPCMBytes) ~5.5 MB, lalu samples[i].data =
-    // psramBuffer + offset. Akibatnya satu KIT LOAD butuh satu
-    // blok kontigu sebesar SELURUH kit, dan free-list yang
-    // terpecah (free total cukup, largest < requested) langsung
-    // gagal:
-    //
+    // SEBELUMNYA kit memuat seluruh PCM ke SATU blok
+    // ps_malloc(totalPCMBytes) ~5.5 MB (samples[i].data =
+    // psramBuffer + offset). Satu KIT LOAD butuh satu blok kontigu
+    // sebesar SELURUH kit — free-list yang terpecah langsung gagal:
     //     free=8135KB largest=5119KB requested=5453KB
     //     -> PSRAM ALLOC FAILED / cause=FRAGMENTED
     //
-    // SEKARANG tiap sample unik dialokasikan sebagai blok
-    // PSRAM-nya SENDIRI (slotOwnBuf[slot]), persis seperti slot
-    // runtime G21 sudah dilakukan. Total kit tidak lagi harus
-    // muat dalam satu blok: cukup free TOTAL, karena tiap
-    // permintaan hanya sebesar satu sample.
+    // SEKARANG tiap sample unik dialokasikan sebagai blok PSRAM-nya
+    // SENDIRI (slotOwnBuf[slot]). Total kit tidak harus muat dalam
+    // satu blok: cukup free TOTAL, karena tiap permintaan hanya
+    // sebesar satu sample.
     //
-    // Konsekuensi untuk audio: TIDAK ADA. Audio tidak pernah
-    // melihat "blok kit" — startVoice() hanya memakai
-    // psramGetData(slot) / psramGetDataSize(slot), yang
-    // keduanya sudah per-slot. Karena itu audio.cpp,
-    // mixer, I2S/DMA, voice allocator, trigger, velocity,
-    // priority, dan GPIO TIDAK disentuh sama sekali.
+    // Konsekuensi untuk audio: TIDAK ADA. Audio tidak pernah melihat
+    // "blok kit" — startVoice() hanya memakai psramGetData(slot) /
+    // psramGetDataSize(slot) yang sudah per-slot. audio.cpp, mixer,
+    // I2S/DMA, voice allocator, trigger, velocity, priority, dan GPIO
+    // TIDAK disentuh sama sekali.
     //
-    // slotOwnBuf[] sekarang menjadi SATU-SATUNYA tabel
-    // kepemilikan blok PCM di PSRAM — mencakup slot kit (0..11)
-    // maupun slot runtime (12..15). Tidak ada lagi blok PCM
-    // kedua yang tersembunyi di luar tabel ini.
+    // slotOwnBuf[] kini SATU-SATUNYA tabel kepemilikan blok PCM di
+    // PSRAM (slot kit 0..11 maupun runtime 12..15). Tidak ada blok
+    // PCM kedua yang tersembunyi di luar tabel ini.
 
-    // Total byte PCM kit yang saat ini hidup di PSRAM
-    // (dijumlah dari blok yang dimiliki slot kit).
+    // Total byte PCM kit yang hidup di PSRAM (dijumlah dari blok
+    // milik slot kit).
     size_t psramTotalAllocated = 0;
 
     SampleInfo samples[PSRAM_MAX_SAMPLES];
@@ -53,24 +47,21 @@ namespace
     bool kitLoaded = false;
 
     // G25: pengganti sentinel "psramBuffer != nullptr".
-    // true  = KIT LOAD Produksi >= 1 blok PCM di PSRAM.
-    // false = kit kosong (semua pad unassigned) atau gagal.
-    // dipakai sebagai precondition psramLoadSingleSample()
-    // (registry butuh konteks kit yang punya PCM).
+    // true  = KIT LOAD terakhir menghasilkan >= 1 blok PCM di PSRAM.
+    // false = kit kosong (semua pad unassigned) atau gagal. Dipakai
+    // sebagai precondition psramLoadSingleSample().
     bool kitHasPcm = false;
 
     // ==================================================
     // Pad → PSRAM Slot Registry (dibangun saat commit)
     // ==================================================
-    // slotForPad[p] = physical PSRAM slot (0..PAD_COUNT-1)
-    //   yang memuat sample untuk pad p, ATAU p sendiri
-    //   bila kit belum dimuat atau source slot invalid.
+    // slotForPad[p] = physical PSRAM slot (0..PAD_COUNT-1) yang
+    // memuat sample untuk pad p, ATAU p sendiri bila kit belum
+    // dimuat / source slot invalid.
     //
-    // Lookup: O(1), memory-only. Dibangun di control plane
-    // (saat kit commit / unload) dan hanya dibaca oleh
-    // AudioTask (realtime path). Tidak ada SD/malloc/String.
-    //
-    // Default = identitas (backward-compat): slotForPad[p]=p.
+    // Lookup: O(1), memory-only. Dibangun di control plane (saat kit
+    // commit / unload), hanya dibaca AudioTask (realtime path).
+    // Tanpa SD/malloc/String. Default = identitas (backward-compat).
 
     uint8_t slotForPad[PAD_COUNT] = {};
 
@@ -82,24 +73,21 @@ namespace
         }
     }
 
-
     // ==================================================
     // Sample Registry (G21): path file → physical PSRAM slot
     // ==================================================
     //
-    // Registry adalah satu-satunya sumber "file ini sudah ada di
-    // PSRAM atau belum". slotPath[s] kosong (== '\0') berarti slot
-    // s bebas dan bisa dipakai file baru.
+    // Satu-satunya sumber "file ini sudah ada di PSRAM atau belum".
+    // slotPath[s] kosong (== '\0') berarti slot s bebas untuk file baru.
     //
-    // Diisi ulang setiap KIT LOAD commit (jalur 12 slot kit) dan
-    // bertambah satu entri setiap kali satu file runtime dimuat.
-    // Dibaca hanya di control plane (psramFindSlotByPath), TIDAK
-    // pernah disentuh AudioTask.
+    // Diisi ulang setiap KIT LOAD commit (12 slot kit) dan bertambah
+    // satu entri tiap satu file runtime dimuat. Dibaca hanya di
+    // control plane (psramFindSlotByPath), TIDAK pernah disentuh
+    // AudioTask.
     //
-    // Kolom "path" yang dipakai adalah path absolut hasil resolve
-    // (mis. "/kits/Acoustic/samples/SNARE.wav"), bukan basename:
-    // dengan begitu dua file bernama sama di folder kit berbeda
-    // tidak pernah tertukar.
+    // Path yang dipakai adalah path absolut hasil resolve (mis.
+    // "/kits/Acoustic/samples/SNARE.wav"), bukan basename: dua file
+    // bernama sama di folder kit berbeda tidak pernah tertukar.
 
     char slotPath[PSRAM_MAX_SAMPLES][KIT_SAMPLE_PATH_LEN] = {};
 
@@ -107,26 +95,22 @@ namespace
     // G25: TABEL KEPEMILIKAN BLOK PCM (SATU-SATUNYA)
     // ==================================================
     //
-    // SEBELUMNYA: slotOwnBuf[] hanya untuk slot RUNTIME
-    // (12..15); PCM kit 12 slot pertama "ikut" satu blok kit
-    // tunggal di luar tabel. Akibatnya ada DUA cara memegang
-    // PSRAM (tabel + variabel global), dan audit ownership
-    // harus mengingat keduanya.
+    // SEBELUMNYA slotOwnBuf[] hanya untuk slot RUNTIME (12..15);
+    // PCM kit 12 slot pertama "ikut" satu blok kit tunggal di luar
+    // tabel — ada DUA cara memegang PSRAM (tabel + variabel global).
     //
-    // SEKARANG: setiap slot yang punya PCM punya blok sendiri di
-    // sini. slotOwnBuf[s] == nullptr berarti slot s tidak
-    // memiliki blok (belum terisi, alias, atau invalid).
+    // SEKARANG tiap slot yang punya PCM punya blok sendiri di sini.
+    // slotOwnBuf[s] == nullptr berarti slot s tidak memiliki blok
+    // (belum terisi, alias, atau invalid).
     //
-    // Alias (dua slot menunjuk file yang sama) Sengaja TIDAK
-    // punya blok sendiri: slot alias memakai pointer yang sama
-    // dengan slot pemiliknya dan slotOwnBuf-nya null, sehingga
-    // blok itu hanya bisa dibebaskan SATU KALI oleh
-    // releaseAll() — tanpa risiko double free.
+    // Alias (dua slot menunjuk file sama) SENGAJA tidak punya blok
+    // sendiri: slot alias memakai pointer yang sama dgn slot pemilik
+    // dan slotOwnBuf-nya null, sehingga blok hanya dibebaskan SATU
+    // KALI oleh releaseAll() — tanpa risiko double free.
     //
     // slotOwnBytes[] menyimpan ukuran blok yang benar-benar
-    // dialokasikan (untuk audit leak & laporan alokasi) karena
-    // samples[s].dataSize bisa sudah tidak valid saat failure
-    // path.
+    // dialokasikan (untuk audit leak & laporan alokasi), karena
+    // samples[s].dataSize bisa sudah tidak valid saat failure path.
 /* clang-format off */
     uint8_t  *slotOwnBuf[PSRAM_MAX_SAMPLES]   = {};
     uint32_t  slotOwnBytes[PSRAM_MAX_SAMPLES] = {};
@@ -143,31 +127,24 @@ namespace
     // G23 + G25: PSRAM heap instrumentation
     // ==================================================
     //
-    // "PSRAM ALLOC FAILED!" lama menutupi DUA kegagalan yang
-    // punya remedies berbeda:
+    // "PSRAM ALLOC FAILED!" lama menutupi DUA kegagalan dgn remedy
+    // berbeda:
+    //   OOM        free total < requested -> kit memang tidak muat;
+    //              kurangi sampel / turunkan PSRAM_MAX_SAMPLE_SIZE.
+    //   FRAGMENTED free total >= requested TAPI largest contiguous
+    //              block < requested -> ruang cukup tapi terpecah.
     //
-    //   OOM        free total < requested
-    //               -> kit memang tidak muat, kurangi sampel /
-    //                  turunkan PSRAM_MAX_SAMPLE_SIZE.
-    //   FRAGMENTED free total >= requested TAPI largest
-    //               contiguous block < requested
-    //               -> ruang cukup tapi terpecah; blok sebesar
-    //                  itu tidak bisa dibentuk.
+    // G25: permintaan terbesar kini hanya sebesar SATU sample (bukan
+    // total kit), jadi FRAGMENTED praktis hilang. Klasifikasi tetap
+    // dipertahankan supaya kegagalan terkonfirmasi (mis. satu sample
+    // > largest block) terbaca jujur sebagai FRAGMENTED, bukan OOM.
     //
-    // G25: karena permintaan terbesar kini hanya sebesar SATU
-    // sample (bukan total kit), FRAGMENTED praktis hilang —
-    // ruang yang terpecah tetap bisa dipakai per-sample. Klasifikasi
-    // tetap dipertahankan supaya kegagalan yang benar-benar
-    // terkonfirmasi (mis. satu sample > largest block) tetap
-    // terbaca jujur sebagai FRAGMENTED, bukan disamarkan jadi OOM.
-    //
-    // ps_malloc() di Arduino-ESP32 = heap_caps_malloc(size,
-    // MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT), jadi capability yang
-    // benar untuk mengukur bukan MALLOC_CAP_8BIT (campur) tapi
-    // MALLOC_CAP_SPIRAM. Dicetak di 6 titik: sebelum unload,
-    // sesudah unload, sebelum alokasi blok PCM, sesudah semua
-    // blok teralokasi, saat gagal, dan saat PSRAM STATUS diminta.
-    // Tidak dicetak per audio frame — hanya handful per KIT LOAD.
+    // ps_malloc() = heap_caps_malloc(size, MALLOC_CAP_SPIRAM |
+    // MALLOC_CAP_8BIT), jadi capability yang benar untuk mengukur
+    // adalah MALLOC_CAP_SPIRAM (bukan MALLOC_CAP_8BIT campur).
+    // Dicetak di 6 titik: sebelum/sesudah unload, sebelum/sesudah
+    // alokasi blok PCM, saat gagal, dan saat PSRAM STATUS diminta —
+    // tidak per audio frame, hanya handful per KIT LOAD.
 
     constexpr bool DEBUG_PSRAM_HEAP = true;
 
@@ -211,10 +188,8 @@ namespace
     // G25: hitung ringkasan kepemilikan PSRAM
     // ==================================================
     //
-    // (blok, byteOwned, kitBlok, runtimeBlok) — dipakai oleh
-    // printAllocFailure(), releaseAll(), dan printKitLayout()
-    // supaya angka yang dicetak semuanya berasal dari SATU
-    // sumber: tabel slotOwnBuf[].
+    // Dipakai printAllocFailure(), releaseAll(), dan printKitLayout()
+    // supaya semua angka berasal dari SATU sumber: tabel slotOwnBuf[].
 
     struct PcmOwnership
     {
@@ -251,13 +226,12 @@ namespace
         return o;
     }
 
-    // Klasifikasikan kegagalan alokasi supaya operator tidak perlu
-    // menebak: ruang terpecah vs ruang memang kurang.
+    // Klasifikasikan kegagalan alokasi: ruang terpecah vs ruang memang
+    // kurang.
     //
-    // G25: `requested` kini ukuran SATU sample yang gagal, bukan
-    // total kit. `allocatedSoFar` = byte yang sudah teralokasi untuk
-    // kit baru sebelum request ini gagal, supaya operator bisa
-    // melihat "\\ dari total kit sudah dapat blok".
+    // G25: `requested` kini ukuran SATU sample yang gagal (bukan total
+    // kit). `allocatedSoFar` = byte yang sudah teralokasi untuk kit baru
+    // sebelum request ini gagal.
     void printAllocFailure(
         size_t requested,
         size_t totalPCMBytes,
@@ -323,17 +297,11 @@ namespace
     // G25: DEBUG LAYOUT PSRAM
     // ==================================================
     //
-    // Host test tidak bisa membuktikan apa yang terjadi di
-    // free-list sungguhan, jadi firmware wajib melaporkan
-    // kebenaran runtime-nya sendiri. Yang dicetak:
-    //
-    //   - jumlah sample yang benar-benar di-load
-    //   - total PCM (dan berapa blok yang dipakai)
-    //   - jumlah slot / jumlah owned buffer
-    //   - free PSRAM + largest contiguous block
-    //   - mapping pad -> slot
-    //   - hasil SETIAP alokasi blok (OK / GAGAL)
-    //
+    // Host test tidak bisa membuktikan isi free-list sungguhan, jadi
+    // firmware wajib melaporkan kebenaran runtime-nya sendiri:
+    // jumlah sample ter-load, total PCM + jumlah blok, jumlah slot /
+    // owned buffer, free PSRAM + largest contiguous block, mapping
+    // pad -> slot, dan hasil SETIAP alokasi blok (OK / GAGAL).
     // Semua di control plane, handful baris per KIT LOAD, tidak
     // pernah per audio frame.
     //
@@ -378,8 +346,8 @@ namespace
         Serial0.println();
     }
 
-    // Ringkasan layout setelah kit berhasil di-commit (atau setelah
-    // gagal, supaya kegagalan bisa dibaca dari satu blok log).
+    // Ringkasan layout setelah kit di-commit (atau setelah gagal —
+    // supaya kegagalan terbaca dari satu blok log).
     void printKitLayout(
         const char *phase,
         const char * const samplePaths[],
@@ -479,9 +447,9 @@ namespace
     }
 
     // Pasang registry dari daftar path kit (dipanggil di commit
-    // psramLoadKit). Slot yang tidak valid (unassigned / file
-    // hilang / WAV rusak) sengaja dibiarkan kosong supaya bisa
-    // dipakai lagi nanti oleh file runtime.
+    // psramLoadKit). Slot tidak valid (unassigned / file hilang /
+    // WAV rusak) sengaja dibiarkan kosong supaya bisa dipakai file
+    // runtime nanti.
     void commitKitRegistry(
         const char * const samplePaths[],
         uint8_t count
@@ -508,9 +476,9 @@ namespace
         }
     }
 
-    // Slot PSRAM pertama yang belum dipakai file apa pun
-    // (slot kit kosong diprioritaskan supaya kit yang semula
-    // penuh bisa menampung file baru tanpa menambah alokasi).
+    // Slot PSRAM pertama yang belum dipakai file apa pun (slot kit
+    // kosong diprioritaskan supaya kit yang semula penuh bisa
+    // menampung file baru tanpa menambah alokasi).
     // PSRAM_SLOT_NONE bila registry penuh.
     uint8_t firstFreeRegistrySlot()
     {
@@ -525,9 +493,9 @@ namespace
         return PSRAM_SLOT_NONE;
     }
 
-    // Jumlah slot yang punya blok PCM milik sendiri. Dipakai audit
-    // leak: setelah releaseAll() HARUS 0, dan setelah satu KIT LOAD
-    // harus == jumlah sample unik yang valid.
+    // Jumlah slot yang punya blok PCM sendiri. Dipakai audit leak:
+    // setelah releaseAll() HARUS 0; setelah satu KIT LOAD harus ==
+    // jumlah sample unik yang valid.
     uint8_t ownedSlotCount()
     {
         return pcmOwnership().blocks;
@@ -538,19 +506,16 @@ namespace
     // dialokasikan untuk kit baru tapi belum jadi milik slot.
     // ==================================================
     //
-    // Blok PCM kit baru yang sudah dialokasikan tapi belum di-commit
-    // hidup di stack psramLoadKit dan BELUM pernah masuk tabel
-    // slotOwnBuf[], jadi ownership-nya belum terlihat dari luar.
+    // Blok staging hidup di stack psramLoadKit dan BELUM pernah masuk
+    // tabel slotOwnBuf[], jadi ownership-nya belum terlihat dari luar.
     // Kalau satu blok gagal dialokasikan (atau satu WAV gagal dibaca
-    // dari SD), SEMUA blok staging yang sudah jadi harus dilepas —
-    // kalau tidak, PSRAM bocor setiap kali KIT LOAD gagal.
+    // dari SD), SEMUA blok staging harus dilepas — kalau tidak, PSRAM
+    // bocor setiap kali KIT LOAD gagal.
     //
-    // Ini adalah SATU-SATUNYA free point untuk blok staging
-    // (dipanggil dari failure path alokasi DAN failure path baca
-    // SD). Blok yang sudah di-commit tidak pernah lewat sini.
-    //
-    // Di-iterate per SLOT (bukan per indeks alokasi) supaya blok
-    // yang sama tidak mungkin dibebaskan dua kali.
+    // Ini SATU-SATUNYA free point untuk blok staging (dipanggil dari
+    // failure path alokasi DAN baca SD). Blok yang sudah di-commit
+    // tidak pernah lewat sini. Di-iterate per SLOT (bukan per indeks
+    // alokasi) supaya blok yang sama tak mungkin dibebaskan dua kali.
     void releaseStaged(uint8_t *stagedBuf[])
     {
         for (uint8_t s = 0; s < PSRAM_MAX_SAMPLES; s++)
@@ -566,10 +531,9 @@ namespace
     // Urutkan slot menurut ukuran DESCENDING (insertion sort pada
     // array kecil; control plane, non-realtime).
     //
-    // MENGAPA descending: permintaan paling besar dilayani saat
-    // free-list masih punya blok terbesar. Ini mengurangi peluang
-    // tersisa hole besar yang tak terpakai, sehingga blok-blok
-    // kecil setelahnya lebih mudah muat. Maks 16 elemen, jadi
+    // MENGAPA descending: permintaan terbesar dilayani saat free-list
+    // masih punya blok terbesar — mengurangi hole besar tak terpakai,
+    // sehingga blok kecil setelahnya lebih mudah muat. Maks 16 elemen,
     // O(n^2) sekali (~120 perbandingan) tidak terasa.
     void sortSlotsBySizeDesc(
         uint8_t *order,
@@ -598,42 +562,34 @@ namespace
     // G23: SATU-SATUNYA pemilik pelepasan resource PSRAM
     // ==================================================
     //
-    // SEBELUMNYA pelepasan dipecah dan bergantung pada invariant
-    // IMPLISIT: psramUnloadKit() membebaskan psramBuffer, dan
-    // slotOwnBuf G21 ikut ter-free "karena kebetulan dipanggil
-    // dari psramLoadKit() tepat sebelum alokasi besar". Tidak ada
-    // satu fungsi pun yang menyatakan "ini semua resource kit".
+    // SEBELUMNYA pelepasan dipecah dan bergantung invariant IMPLISIT:
+    // psramUnloadKit() membebaskan psramBuffer, dan slotOwnBuf G21 ikut
+    // ter-free "karena kebetulan dipanggil dari psramLoadKit() tepat
+    // sebelum alokasi besar". Tidak ada satu fungsi pun yang menyatakan
+    // "ini semua resource kit" — pemanggil unload lain bisa membebaskan
+    // blok kit tapi menyisakan slot runtime G21 (atau sebaliknya).
     //
-    // Akibatnya:
-    //   - pemanggil unload lain bisa membebaskan blok kit tapi
-    //     menyisakan 4 slot runtime G21 (atau sebaliknya);
-    //   - commitKitRegistry() boleh menimpa slotPath tanpa pernah
-    //     menyentuh slotOwnBuf, jadi buffer bisa terlanjur free
-    //     atau tergambar (leak by overwrite).
-    //
-    // SEKARANG (G25) SATU fungsi yang memiliki SELURUH resource:
-    //   1. slotOwnBuf[0..PSRAM_MAX_SAMPLES-1]  — SETIAP blok PCM
-    //      di PSRAM, baik blok kit (0..11) maupun blok runtime
-    //      G21 (12..15). Tidak ada blok PCM di luar tabel ini.
+    // SEKARANG (G25) SATU fungsi memiliki SELURUH resource:
+    //   1. slotOwnBuf[0..PSRAM_MAX_SAMPLES-1] — SETIAP blok PCM di
+    //      PSRAM, baik blok kit (0..11) maupun runtime G21 (12..15).
+    //      Tidak ada blok PCM di luar tabel ini.
     //   2. slotPath[], slotForPad[], samples[], sampleCount,
     //      kitLoaded, kitHasPcm, psramTotalAllocated
     //
-    // Slot ALIAS (dua slot menunjuk file yang sama) tidak punya
-    // blok sendiri: slotOwnBuf-nya null, jadi blok asli hanya
-    // dibebaskan satu kali — tidak ada double free.
+    // Slot ALIAS tidak punya blok sendiri (slotOwnBuf-nya null), jadi
+    // blok asli hanya dibebaskan satu kali — tanpa double free.
     //
-    // PRECONDITION tidak berubah: hanya dipanggil dari jalur yang
-    // SUDAH voice-drained (performKitSwitch: hit gate off lalu
-    // tunggu audioActiveVoiceCount() == 0). Tidak ada delay, tidak
-    // ada free buffer yang sedang dibaca voice.
+    // PRECONDITION: hanya dipanggil dari jalur yang SUDAH voice-drained
+    // (performKitSwitch: hit gate off lalu tunggu
+    // audioActiveVoiceCount() == 0). Tidak ada delay; tidak ada free
+    // buffer yang sedang dibaca voice.
 
     void releaseAll(const char *why)
     {
         printHeap("before unload");
 
-        // (1) SELURUH blok PCM milik slot, 0..15 — bukan hanya slot
-        //     runtime. Baris free() di bawah adalah SATU-SATUNYA
-        //     tempat slotOwnBuf dilepas di seluruh firmware.
+        // (1) SELURUH blok PCM milik slot 0..15 (bukan hanya runtime).
+        //     free() di bawah = SATU-SATUNYA tempat slotOwnBuf dilepas.
         const PcmOwnership before = pcmOwnership();
 
         size_t freedRuntime = 0;
@@ -665,9 +621,8 @@ namespace
         sampleCount = 0;
         kitLoaded = false;
 
-        // (2) Metadata + registry. Pointer samples[][]
-        //    dinolkan SETELAH semua free supaya tidak ada satu
-        //    pun iterasi yang masih melihat memori ter-free.
+        // (2) Metadata + registry. samples[] dinolkan SETELAH semua free
+        //     supaya tak ada iterasi yang melihat memori ter-free.
         initSlotForPadIdentity();
         clearSampleRegistry();
 
@@ -703,19 +658,16 @@ namespace
     // Build Pad → Slot Registry — SATU-SATUNYA aturan pemetaan
     // ==================================================
     //
-    // slotForPad[p] = physical PSRAM slot yang memuat file untuk
-    // pad p, diturunkan dari sampleIds (sumber logic per-pad).
-    // Urutan pass menghasilkan physical slot [0..count-1].
-    // Jika source slot x valid → pad p dipetakan ke slot x;
-    // bila invalid → fallback ke slot p (backward-compat).
-    // Duplikat source (sampleId==sourceSlot) natural: dua pad
-    // memakai slot fisik yang SAMA (data pointer berbagi karena
-    // alias / path identik), tidak ada duplikasi PSRAM.
+    // slotForPad[p] = physical PSRAM slot yang memuat file untuk pad p,
+    // diturunkan dari sampleIds. Source slot x valid → pad p dipetakan
+    // ke slot x; invalid → fallback ke slot p (backward-compat).
+    // Duplikat source natural: dua pad memakai slot fisik yang SAMA
+    // (pointer berbagi karena alias / path identik), tanpa duplikasi
+    // PSRAM.
     //
-    // Dipanggil oleh psramLoadKit() (commit) DAN
-    // psramRebuildSlotRegistry() (PAD_SET sampleId, G8-B), jadi
-    // aturan validasi & fallback tidak pernah menyimpang.
-    // Control plane non-realtime; entry uint8 ditulis atomik.
+    // Dipanggil psramLoadKit() (commit) DAN psramRebuildSlotRegistry()
+    // (PAD_SET sampleId, G8-B) — aturan validasi & fallback tidak pernah
+    // menyimpang. Control plane non-realtime; entry uint8 atomik.
     // ==================================================
 
     void buildSlotRegistry(const uint8_t *ids, uint8_t count)
@@ -741,14 +693,14 @@ namespace
     // ==================================================
     //
     // Benchmark timing loading WAV (Pass 1 / Pass 3 / total).
-    // DEBUG_SD_LOAD=false mematikan seluruh log timing (dan
-    // kode penghitungannya) bila Serial0 jadi bottleneck.
+    // DEBUG_SD_LOAD=false mematikan seluruh log timing (dan kode
+    // penghitungannya) bila Serial0 jadi bottleneck.
     constexpr bool DEBUG_SD_LOAD = true;
 
-    // Read buffer TUNGGAL (reusable, internal RAM -> DMA-friendly
-    // untuk driver SDSPI; menghindari bounce lambat saat target
-    // langsung ke PSRAM). Satu buffer dipakai all WAV, bukan
-    // per-WAV. Internal RAM ~32 KB pada ESP32-S3 aman.
+    // Read buffer TUNGGAL (reusable, internal RAM -> DMA-friendly untuk
+    // driver SDSPI; menghindari bounce lambat saat target langsung ke
+    // PSRAM). Satu buffer untuk semua WAV, bukan per-WAV. Internal RAM
+    // ~32 KB pada ESP32-S3 aman.
     constexpr size_t SD_READ_BUFFER_SIZE = 32 * 1024;
     uint8_t sdReadBuffer[SD_READ_BUFFER_SIZE] = {};
 
@@ -756,9 +708,8 @@ namespace
     // WAV Header Parser
     // ==================================================
     //
-    // Mencari "data" chunk secara robust.
-    // Beberapa WAV punya chunk tambahan di antara
-    // "fmt " dan "data".
+    // Mencari "data" chunk secara robust (beberapa WAV punya chunk
+    // tambahan di antara "fmt " dan "data").
 
     struct WavHeader
     {
@@ -870,27 +821,21 @@ bool psramSetup()
 // ======================================================
 //
 // G25: KIT LOAD TIDAK LAGI BUTUH SATU BLOK KONTIGU ~5.5 MB.
-//
-//   SEBELUM:  validate → free semua → ps_malloc(totalPCM)
-//             → baca semua → commit
-//             (satu permintaan sebesar SELURUH kit)
-//
-//   SEKARANG: validate → free semua → ps_malloc per sample
-//             (blok per sample unik, urutan size DESC)
-//             → baca semua → commit
-//             (permintaan terbesar = satu sample)
-//
-// free-list yang terpecah tidak lagi menggagalkan KIT LOAD:
-// ruang tetap cukup selama free TOTAL cukup, karena tiap sample
-// hanya butuh blok sebesar dirinya sendiri.
+//   SEBELUM : validate → free semua → ps_malloc(totalPCM) → baca
+//             semua → commit (satu permintaan sebesar SELURUH kit).
+//   SEKARANG: validate → free semua → ps_malloc per sample (blok per
+//             sample unik, urutan size DESC) → baca semua → commit
+//             (permintaan terbesar = satu sample).
+// Free-list yang terpecah tidak lagi menggagalkan KIT LOAD: ruang
+// cukup selama free TOTAL cukup.
 //
 // Sifat lain yang DIPERTAHANKAN persis:
 //   - audio gate + voice drain tetap di pemanggil (performKitSwitch)
-//   - free-all tetap terjadi sebelum alokasi (bukan double buffer,
-//     karena 2 kit = ~10.5 MB > 8 MB PSRAM)
+//   - free-all sebelum alokasi (bukan double buffer: 2 kit = ~10.5 MB
+//     > 8 MB PSRAM)
 //   - tidak ada kit setengah jadi: commit hanya kalau SEMUA WAV
-//     terbaca; kalau gagal, semua blok yang sudah dialokasikan
-//     dilepas dan state dikosongkan
+//     terbaca; kalau gagal, semua blok staging dilepas dan state
+//     dikosongkan
 //   - alias (path duplikat) tetap berbagi satu blok
 
 bool psramLoadKit(
@@ -900,12 +845,11 @@ bool psramLoadKit(
 )
 {
     // PRECONDITION (dijamin caller / performKitSwitch):
-    //   - hit gate OFF          (audioSetHitAccept(false))
-    //   - active voice == 0     (audioActiveVoiceCount()==0)
-    //   - tidak ada voice yang membaca blok PCM lama
-    // Blok PCM lama karena itu AMAN dilepas untuk menghindari
-    // kebutuhan "kit lama + kit baru" bersamaan di PSRAM.
-    // Fungsi ini tidak mengubah trigger/audio timing.
+    //   - hit gate OFF, active voice == 0, tidak ada voice yang
+    //     membaca blok PCM lama.
+    // Blok PCM lama AMAN dilepas (menghindari "kit lama + kit baru"
+    // bersamaan di PSRAM). Fungsi ini tidak mengubah trigger/audio
+    // timing.
 
     Serial0.println("=== LOADING KIT TO PSRAM ===");
 
@@ -925,24 +869,22 @@ bool psramLoadKit(
     }
 
     // -----------------------------------------------------------
-    // Reset slot registry ke identitas (backward-compat) SEBELUM
-    // kit switch dimulai. Jika load gagal, state ini tetap aman
-    // (padIndex == slot, tidak ada slot yang salah). Diperbarui
-    // di commit jika kit berhasil dimuat (khususnya bila
-    // sampleId pad != padIndex karena remapping).
+    // Reset slot registry ke identitas (backward-compat) SEBELUM kit
+    // switch dimulai. Bila load gagal, state ini tetap aman. Diperbarui
+    // di commit bila kit berhasil dimuat (khususnya bila sampleId pad
+    // != padIndex karena remapping).
     // -----------------------------------------------------------
 
     initSlotForPadIdentity();
 
-    // Staging metadata kit baru. Committed ke samples[] hanya
-    // jika SELURUH WAV berhasil dimuat (tidak pernah kit
-    // setengah jadi).
+    // Staging metadata kit baru — di-commit ke samples[] hanya bila
+    // SELURUH WAV berhasil dimuat (tidak pernah kit setengah jadi).
     SampleInfo newSamples[PSRAM_MAX_SAMPLES] = {};
 
     // ----------------------------------------------
-    // Pass 1: Hitung total size & validasi
-    // Duplicate path detection: kalau path sama,
-    // reuse sample yang sudah di-load
+    // Pass 1: hitung total size & validasi.
+    // Duplicate path detection: path sama -> reuse sample
+    // yang sudah di-load.
     // ----------------------------------------------
 
     uint32_t totalPCMBytes = 0;
@@ -977,7 +919,7 @@ bool psramLoadKit(
         }
 
         // Path kosong = pad UNASSIGNED (senyap). Bukan error: slot
-        // sengaja tanpa sample. Tidak menambah totalPCMBytes.
+        // sengaja tanpa sample, tidak menambah totalPCMBytes.
         if (!samplePaths[i] || samplePaths[i][0] == '\0')
         {
             newSamples[i].valid = false;
@@ -1077,10 +1019,9 @@ bool psramLoadKit(
 
     if (totalPCMBytes == 0)
     {
-        // Kit muat (atau SEMUA pad unassigned): commit kit EMPTY.
-        // Tidak ada PCM untuk dialokasi; seluruh slot invalid
-        // (senyap). psramGetData()=nullptr -> startVoice bails aman.
-        // Kit "tanpa suara" adalah state valid (bukan kegagalan).
+        // Kit tanpa PCM (semua pad unassigned): commit kit EMPTY.
+        // Seluruh slot invalid (senyap); psramGetData()=nullptr ->
+        // startVoice bails aman. Kit "tanpa suara" = state valid.
         Serial0.println("No PCM (kit senyap/unassigned) -> commit EMPTY.");
 
         // G23: void, tapi tetap satu-satunya release point.
@@ -1093,8 +1034,8 @@ bool psramLoadKit(
         memcpy(samples, newSamples, sizeof(samples));
         buildSlotRegistry(sampleIds, count);
 
-        // Registry G21: kit senyap -> semua slot kosong (tidak ada
-        // file yang bisa dipakai PAD -> SOUND tanpa load baru).
+        // Registry G21: kit senyap -> semua slot kosong (tidak ada file
+        // untuk PAD -> SOUND tanpa load baru).
         clearSampleRegistry();
 
         printKitLayout("empty", samplePaths, count, 0);
@@ -1108,19 +1049,16 @@ bool psramLoadKit(
     // PCM per-slot: blok kit 0..11 + slot runtime G21 12..15),
     // BARU alokasi blok PCM PER SAMPLE untuk kit baru.
     //
-    // Tetap free-all-sebelum-alloc (bukan double buffer): dua kit
-    // hidup bersamaan = ~10.5 MB > 8 MB PSRAM, jadi tidak ada
-    // alternatif. Konsekuensinya jujur dan sama seperti sebelumnya:
-    // kalau alokasi gagal, kit lama SUDAH tidak ada lagi dan
-    // pemanggil (performKitSwitch) wajib memuat ulang kit lama —
-    // lihat blok rollback di uart_protocol.cpp.
+    // Tetap free-all-sebelum-alloc (bukan double buffer: 2 kit =
+    // ~10.5 MB > 8 MB PSRAM). Konsekuensinya: kalau alokasi gagal,
+    // kit lama SUDAH tidak ada dan pemanggil (performKitSwitch) wajib
+    // memuat ulang kit lama — lihat blok rollback di uart_protocol.cpp.
     //
-    // BLOK PER SAMPLE (bukan satu blok total) karena inilah akar
-    // masalah G25: free-list PSRAM itu terpecah. Satu permintaan
-    // 5453 KB butuh satu blok kontigu 5453 KB, sedangkan free
-    // total 8135 KB tersusun dari blok terbesar hanya 5119 KB.
-    // Dengan blok per sample, permintaan terbesar hanya sebesar
-    // satu sample, jadi ruang yang tersisa tetap terpakai penuh.
+    // BLOK PER SAMPLE karena inilah akar masalah G25: free-list PSRAM
+    // terpecah (satu permintaan 5453 KB butuh satu blok kontigu 5453
+    // KB, padahal free total 8135 KB tersusun dari blok terbesar
+    // 5119 KB). Dengan blok per sample, permintaan terbesar hanya
+    // sebesar satu sample.
     // ----------------------------------------------
 
     Serial0.print("Total PCM: ");
@@ -1152,9 +1090,8 @@ bool psramLoadKit(
         allocOrder[allocCount++] = i;
     }
 
-    // Pesanan terbesar didahulukan: permintaan besar dilayani selagi
-    // free-list masih punya hole terbesar, sehingga sisa hole besar
-    // tidak tergerus oleh permintaan kecil-kecil.
+    // Ukuran terbesar didahulukan: permintaan besar dilayani selagi
+    // free-list masih punya hole terbesar.
     sortSlotsBySizeDesc(allocOrder, allocCount, stagedBytes);
 
     size_t allocatedSoFar = 0;
@@ -1174,8 +1111,8 @@ bool psramLoadKit(
             Serial0.println("PSRAM ALLOC FAILED!");
             Serial0.println("PSRAM kit kosong (state konsisten).");
 
-            // Buang SEMUA blok yang sudah jadi untuk kit ini supaya
-            // tidak bocor, lalu kosongkan state.
+            // Buang SEMUA blok staging kit ini supaya tidak bocor,
+            // lalu kosongkan state.
             releaseStaged(stagedBuf);
 
             printHeap("kit alloc FAILED", totalPCMBytes);
@@ -1225,10 +1162,9 @@ bool psramLoadKit(
     }
 
     // ----------------------------------------------
-    // Pass 3: Baca PCM ke blok per-sample (chunked,
-    // DMA-friendly). Jika SATU pun WAV gagal dibaca ->
-    // allLoaded=false -> TIDAK ada commit, dan semua blok
-    // staging dibuang.
+    // Pass 3: baca PCM ke blok per-sample (chunked, DMA-friendly).
+    // Satu WAV gagal dibaca -> allLoaded=false -> TIDAK ada commit,
+    // semua blok staging dibuang.
     // ----------------------------------------------
 
     bool allLoaded = true;
@@ -1281,9 +1217,8 @@ bool psramLoadKit(
 
         // Baca PCM ber-chunk: SD -> sdReadBuffer (internal RAM,
         // DMA-friendly untuk driver SDSPI) -> memcpy ke blok PSRAM
-        // milik slot ini. Satu reusable buffer, bukan per-WAV.
-        // Format data tetap raw PCM 16-bit, urutan byte identik
-        // dengan sebelumnya — tidak ada transformasi audio.
+        // milik slot ini. Satu reusable buffer, bukan per-WAV. Format
+        // tetap raw PCM 16-bit — tidak ada transformasi audio.
         uint8_t *writePtr = stagedBuf[i];
         size_t remainingBytes = newSamples[i].dataSize;
         bool wavOk = true;
@@ -1377,18 +1312,15 @@ bool psramLoadKit(
         // Blok PCM kit lama sudah dibebaskan di Pass 2 dan samples[]
         // sudah dikosongkan (tidak ada pointer ke memori ter-free).
         //
-        // G25: blok kit BARU masih hidup di staging (belum masuk
-        // tabel slotOwnBuf), jadi dilepas lewat releaseStaged() —
-        // satu-satunya free point untuk blok staging. Setelah itu
-        // state direset:
-        //   kitHasPcm           = false
-        //   psramTotalAllocated = 0
-        //   sampleCount         = 0
-        //   kitLoaded           = false
+        // G25: blok kit BARU masih hidup di staging (belum masuk tabel
+        // slotOwnBuf), jadi dilepas lewat releaseStaged() — satu-satunya
+        // free point untuk blok staging. Setelah itu state direset
+        // (kitHasPcm=false, psramTotalAllocated=0, sampleCount=0,
+        // kitLoaded=false).
         //
         // slotOwnBuf[] sudah kosong (releaseAll di Pass 2) dan TIDAK
-        // pernah disentuh di jalur ini, jadi tidak ada ownership
-        // leak maupun pointer stale.
+        // pernah disentuh di jalur ini — tanpa ownership leak maupun
+        // pointer stale.
         releaseStaged(stagedBuf);
 
         psramTotalAllocated = 0;
@@ -1396,9 +1328,8 @@ bool psramLoadKit(
         sampleCount = 0;
         kitLoaded = false;
 
-        // Registry tetap identitas (backward-compat). Kit aktif
-        // akan memakai slot sesuai padIndex — bila PSRAM kosong,
-        // psramGetData(nullptr) → startVoice bails aman.
+        // Registry tetap identitas (backward-compat). Bila PSRAM kosong,
+        // psramGetData()=nullptr -> startVoice bails aman.
         initSlotForPadIdentity();
 
         printKitLayout("FAILED", samplePaths, count, 0);
@@ -1410,19 +1341,18 @@ bool psramLoadKit(
     // Commit: blok PCM di-finalisasi ke tabel kepemilikan.
     // ==============================================
     //
-    // Sampai titik ini stagedBuf[] TIDAK terlihat dari luar
-    // (belum di slotOwnBuf), jadi tidak ada voice / pemanggil
-    // lain yang bisa membaca PCM yang belum final. Sekarang
-    // setiap blok dipindahkan ke slotOwnBuf[slot] + slotOwnBytes.
+    // Sampai titik ini stagedBuf[] TIDAK terlihat dari luar (belum di
+    // slotOwnBuf), jadi tidak ada voice/pemanggil lain yang bisa
+    // membaca PCM yang belum final. Sekarang tiap blok dipindahkan ke
+    // slotOwnBuf[slot] + slotOwnBytes.
     //
-    // Slot ALIAS TIDAK disentuh: pointer-nya sudah berbagi dengan
-    // slot pemilik (newSamples[i] = newSamples[aliasOf[i]] di
-    // Pass 3) dan slotOwnBuf-nya tetap nullptr, jadi blok asli
-    // hanya dibebaskan satu kali oleh releaseAll().
+    // Slot ALIAS TIDAK disentuh: pointer-nya sudah berbagi dgn slot
+    // pemilik (Pass 3) dan slotOwnBuf-nya tetap nullptr, jadi blok
+    // asli hanya dibebaskan satu kali oleh releaseAll().
     //
     // releaseAll() sudah dipanggil di Pass 2, jadi SELURUH tabel
-    // slotOwnBuf dijamin kosong di sini — tidak ada overwrite blok
-    // yang masih hidup (anti leak-by-overwrite, G23).
+    // slotOwnBuf dijamin kosong di sini — tanpa overwrite blok yang
+    // masih hidup (anti leak-by-overwrite, G23).
 
     for (uint8_t s = 0; s < PSRAM_MAX_SAMPLES; s++)
     {
@@ -1440,13 +1370,13 @@ bool psramLoadKit(
 
     memcpy(samples, newSamples, sizeof(samples));
 
-    // Bangun registry pad->slot dari sampleIds kit baru (aturan
-    // tunggal buildSlotRegistry). Lihat komentar helper di atas.
+    // Bangun registry pad->slot dari sampleIds kit baru (aturan tunggal
+    // buildSlotRegistry — lihat komentar helper di atas).
     buildSlotRegistry(sampleIds, count);
 
-    // Bangun registry G21 (path file -> slot) dari path kit baru,
-    // supaya PAD -> SOUND berikutnya hanya perlu lookup memori:
-    // file yang sudah dimuat tidak pernah dibaca ulang dari SD.
+    // Bangun registry G21 (path file -> slot) dari path kit baru, supaya
+    // PAD -> SOUND berikutnya hanya lookup memori (file yang sudah
+    // dimuat tidak dibaca ulang dari SD).
     commitKitRegistry(samplePaths, count);
 
     printKitLayout("OK", samplePaths, count, totalPCMBytes);
@@ -1469,10 +1399,9 @@ bool psramLoadKit(
 
 void psramUnloadKit()
 {
-    // G23 + G25: seluruh resource PSRAM dilepas di sini — bukan
-    // hanya blok kit, tapi SETIAP blok PCM per-slot (kit DAN
-    // runtime G21). Lihat releaseAll() untuk daftar lengkap dan
-    // precondition voice-drained.
+    // G23 + G25: seluruh resource PSRAM dilepas di sini — SETIAP blok
+    // PCM per-slot (kit DAN runtime G21). Lihat releaseAll() untuk
+    // daftar lengkap dan precondition voice-drained.
     releaseAll("unload");
 }
 
@@ -1508,9 +1437,8 @@ bool psramIsLoaded()
 // Public: Pad → Slot Registry
 // ======================================================
 //
-// Lookup O(1), memory-only. Dibangun di control plane
-// (saat kit commit) dan hanya dibaca oleh AudioTask.
-// Default identitas (backward-compat): slotForPad[p] = p.
+// Lookup O(1), memory-only. Dibangun di control plane (saat kit
+// commit), hanya dibaca AudioTask. Default identitas (backward-compat).
 
 uint8_t psramSlotForPad(uint8_t padIndex)
 {
@@ -1526,26 +1454,24 @@ uint8_t psramSlotForPad(uint8_t padIndex)
 // Public: Rebuild Pad → Slot Registry (G8-B)
 // ======================================================
 //
-// Remap langsung pada registry (tanpa unload/reload PSRAM).
-// Dibangun dari sampleId EFFECTIVE saat ini (config layer sudah
-// memuat JSON + override NVS). Dipanggil dari control plane saat
-// PAD_SET sampleId berhasil — memakai aturan yang sama dengan
-// commit kit load (buildSlotRegistry). Tidak ada SD/malloc/
-// blocking. Audio membaca slotForPad per-hit (Core 0); tiap entry
-// uint8 ditulis atomik -> aman tanpa lock tambahan.
+// Remap langsung pada registry (tanpa unload/reload PSRAM) dari
+// sampleId EFFECTIVE saat ini. Dipanggil dari control plane saat
+// PAD_SET sampleId berhasil — aturan sama dgn commit kit load
+// (buildSlotRegistry). Tanpa SD/malloc/blocking. Audio membaca
+// slotForPad per-hit (Core 0); tiap entry uint8 ditulis atomik ->
+// aman tanpa lock tambahan.
 // ======================================================
 
 void psramRebuildSlotRegistry(
     const uint8_t sampleIds[]
 )
 {
-    // Registry hanya bermakna saat kit termuat; kalau belum,
-    // skip (audio bails aman) dan unload sudah mereset ke identitas.
+    // Registry hanya bermakna saat kit termuat; kalau belum, skip
+    // (audio bails aman) — unload sudah mereset ke identitas.
     //
-    // G25: sentinel "kit punya PCM di PSRAM" (sebelumnya
-    // `psramBuffer != nullptr`). Tidak ada lagi satu blok kit
-    // tunggal yang harus dicek; yang dicek adalah apakah KIT LOAD
-    // terakhir benar-benar menghasilkan >= 1 blok PCM.
+    // G25: sentinel "kit punya PCM di PSRAM" (sebelumnya `psramBuffer
+    // != nullptr`). Yang dicek: apakah KIT LOAD terakhir menghasilkan
+    // >= 1 blok PCM.
     if (!kitHasPcm || !kitLoaded)
     {
         return;
@@ -1558,11 +1484,11 @@ void psramRebuildSlotRegistry(
 // Public: Sample Registry — path → PSRAM slot (G21)
 // ======================================================
 //
-// Control-plane lookup, memory-only (tanpa SD/malloc/file).
-// Menentukan apakah PAD -> SOUND cukup REMAP (file sudah termuat)
+// Control-plane lookup, memory-only (tanpa SD/malloc/file):
+// menentukan apakah PAD -> SOUND cukup REMAP (file sudah termuat)
 // atau perlu LOAD SATU FILE (file baru). Hanya slot yang PCM-nya
-// benar-benar ada yang dikembalikan, jadi pemanggil bisa memakai
-// hasil lookup langsung untuk playback.
+// benar-benar ada yang dikembalikan — pemanggil bisa langsung
+// memakainya untuk playback.
 
 uint8_t psramFindSlotByPath(const char *absPath)
 {
@@ -1590,14 +1516,13 @@ uint8_t psramFindSlotByPath(const char *absPath)
 // Public: Set Pad → Slot runtime (G21)
 // ======================================================
 //
-// Satu-satunya operasi realtime-remap. Tulis SATU entri uint8 pada
-// fixed array slotForPad — persis bentuk yang sudah dibaca AudioTask
-// (fireHit → psramSlotForPad). Store byte-aligned bersifat atomic di
-// ESP32-S3, jadi AudioTask yang menembak pad bersamaan akan memakai
-// slot LAMA atau slot BARU (keduanya valid & PCM-nya sudah termuat),
-// tidak pernah setengah-updated dan tidak pernah membaca pointer
-// yang belum ter-commit. Tidak ada lock, tidak ada SD, tidak ada
-// String, tidak ada alokasi.
+// Satu-satunya operasi realtime-remap: tulis SATU entri uint8 pada
+// fixed array slotForPad (bentuk yang dibaca AudioTask via
+// fireHit → psramSlotForPad). Store byte-aligned bersifat atomic di
+// ESP32-S3 — AudioTask yang menembak pad bersamaan memakai slot LAMA
+// atau BARU (keduanya valid & PCM termuat), tidak pernah
+// setengah-updating dan tidak pernah membaca pointer yang belum
+// ter-commit. Tanpa lock/SD/String/alokasi.
 //
 // Slot PSRAM_SLOT_NONE = pad senyap (startVoice menolak lewat bound
 // check, jadi data sample lain tidak tersentuh).
@@ -1609,7 +1534,7 @@ void psramSetPadSlot(
 {
     if (padIndex >= PAD_COUNT)
     {
-        return;     // no-op: jangan pernah menulis di luar tabel
+        return;   // no-op: jangan menulis di luar tabel
     }
 
     slotForPad[padIndex] = slot;
@@ -1620,21 +1545,19 @@ void psramSetPadSlot(
 // ======================================================
 //
 // Berbeda dari psramLoadKit(), fungsi ini TIDAK menyentuh sample
-// yang sudah termuat:
-//   - tidak membebaskan blok PCM slot lain, tidak unload apa pun;
-//   - tidak me-rebase pointer PCM sample lain;
-//   - hanya membaca file yang diminta, satu kali, chunked.
+// yang sudah termuat: tidak membebaskan blok PCM slot lain, tidak
+// me-rebase pointer PCM sample lain — hanya membaca file yang
+// diminta, satu kali, chunked.
 //
-// G25: karena SELURUH slot PSRAM sekarang punya blok sendiri
-// (tidak ada lagi "blok kit tunggal" yang harus dijaga utuh),
-// slot hasil memakai alokasi PSRAM independen persis seperti
-// slot kit. Blok PCM lain yang mungkin sedang dibaca voice tetap
-// utuh. Itu juga alasan pemanggil tidak perlu menahan voice:
-// tidak ada pointer yang berubah lifetime di sini.
+// G25: SELURUH slot PSRAM kini punya blok sendiri (tidak ada lagi
+// "blok kit tunggal" yang harus dijaga utuh), jadi slot hasil memakai
+// alokasi PSRAM independen seperti slot kit. Blok lain yang sedang
+// dibaca voice tetap utuh — pemanggil tidak perlu menahan voice
+// karena tidak ada pointer yang berubah lifetime di sini.
 //
 // Semua penolakan terjadi SEBELUM commit: file hilang, WAV tidak
-// valid, PSRAM penuh, atau tidak ada slot kosong → tidak ada state
-// yang berubah sama sekali (mapping pemanggil tetap aman).
+// valid, PSRAM penuh, atau slot penuh → tidak ada state yang berubah
+// (mapping pemanggil tetap aman).
 
 uint8_t psramLoadSingleSample(
     const char *absPath
@@ -1656,21 +1579,19 @@ uint8_t psramLoadSingleSample(
     // Registry hanya bermakna kalau ada kit aktif (slot kit sebagai
     // konteks). Tanpa kit, remap tidak punya tempat hidup.
     //
-    // G25: `kitHasPcm` menggantikan sentinel `psramBuffer != nullptr`
-    // dan nilainya persis sama: true hanya kalau KIT LOAD terakhir
-    // menghasilkan >= 1 blok PCM di PSRAM. Kit senyap (semua pad
-    // unassigned) tetap menolak, persis seperti sebelumnya.
+    // G25: `kitHasPcm` menggantikan sentinel `psramBuffer != nullptr`:
+    // true hanya kalau KIT LOAD terakhir menghasilkan >= 1 blok PCM.
+    // Kit senyap (semua pad unassigned) tetap menolak.
     if (!kitHasPcm || !kitLoaded)
     {
         return PSRAM_SLOT_NONE;
     }
 
-    // G23: path yang lebih panjang dari slotPath[] akan terpotong
-    // oleh snprintf, sehingga psramFindSlotByPath() tidak akan
-    // pernah mencocokkan file yang sama lagi -> setiap PAD -> SOUND
-    // mengulang alokasi PSRAM sampai registry penuh. Tolak di
-    // gerbang, sama seperti file hilang / WAV rusak: tidak ada
-    // yang di-commit.
+    // G23: path lebih panjang dari slotPath[] akan terpotong snprintf,
+    // sehingga psramFindSlotByPath() tak pernah cocok lagi -> tiap
+    // PAD -> SOUND mengulang alokasi sampai registry penuh. Tolak di
+    // gerbang (seperti file hilang / WAV rusak): tidak ada yang
+    // di-commit.
     if (strlen(absPath) >= sizeof(slotPath[0]))
     {
         Serial0.print("[PSRAM] single load PATH TOO LONG (");
@@ -1697,16 +1618,15 @@ uint8_t psramLoadSingleSample(
     }
 
     // G23: JARING pengaman ownership. firstFreeRegistrySlot() hanya
-    // melihat slotPath[], jadi slot dengan slotOwnBuf != nullptr
-    // yang slotPath-nya kosong akan TERTIMPA di commit dan buffer
-    // lamanya hilang tanpa free (leak by overwrite).
+    // melihat slotPath[], jadi slot dgn slotOwnBuf != nullptr yang
+    // slotPath-nya kosong akan TERTIMPA di commit dan buffer lamanya
+    // hilang tanpa free (leak by overwrite).
     //
-    // Buffers TIDAK dibebaskan di sini: jalur ini dipanggil tanpa
-    // hit-gate / voice-drain (lihat performSampleAssign), jadi
-    // membebaskan buffer yang mungkin sedang dibaca voice akan
-    // menyerahkan dangling pointer ke AudioTask. Lebih aman menolak
-    // dan membiarkan KIT LOAD (yang sudah voice-drained) yang
-    // membebaskan semuanya lewat releaseAll().
+    // Buffer TIDAK dibebaskan di sini: jalur ini tanpa hit-gate /
+    // voice-drain (lihat performSampleAssign), jadi free buffer yang
+    // mungkin dibaca voice = dangling pointer ke AudioTask. Lebih
+    // aman menolak; KIT LOAD (sudah voice-drained) yang membebaskan
+    // semuanya lewat releaseAll().
     if (slotOwnBuf[slot])
     {
         Serial0.print("[PSRAM] single load: slot ");
@@ -1883,9 +1803,8 @@ void psramPrintStatus()
             Serial0.print("INVALID");
         }
 
-        // G25: sebutkan status kepemilikan blok slot ini supaya
-        // "own" (blok sendiri) vs "alias" (beragi pointer) vs
-        // "none" (tidak punya PCM) bisa langsung dibaca.
+        // G25: status kepemilikan blok — "own" (blok sendiri) vs
+        // "alias" (berbagi pointer) vs "none" (tanpa PCM).
         if (slotOwnBuf[i])
         {
             Serial0.print(" own=");

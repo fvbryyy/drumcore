@@ -10,18 +10,18 @@
 void triggerInit();
 
 // Phase 1: jalankan real-time trigger scanning sebagai
-// FreeRTOS task (Core 0 / priority 24). Panggil SETELAH
+// FreeRTOS task (Core 1 / priority 23). Panggil SETELAH
 // triggerInit() dan audioInit().
 
 void triggerTaskStart();
 
-// Real-time: scan ADC + updatePad (dipanggil task Core 0)
+// Real-time: scan ADC + updatePad (dipanggil task Core 1)
 
 void triggerTask();
 
 // Non-real-time: cetak laporan profiling trigger/audio.
 // Dipanggil dari loop() (Core 1) supaya blocking Serial
-// tidak mengganggu real-time path di Core 0.
+// tidak mengganggu real-time path di Core 1.
 
 void triggerProfileReport();
 

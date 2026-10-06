@@ -22,9 +22,9 @@ namespace
     // Note stacking ring buffer
     // --------------------------------------------------
     //
-    // Mengatasi masalah single-note pending.
-    // Jika beberapa pad dipukul dalam <5ms, semua
-    // note terkirim, bukan hanya yang terakhir.
+    // Mengatasi masalah single-note pending: beberapa pad yang
+    // dipukul dalam <5ms semuanya terkirim, bukan hanya note
+    // yang terakhir.
 
     constexpr uint8_t NOTE_STACK_SIZE = 8;
 
@@ -41,10 +41,10 @@ namespace
     // MIDI TASK (Core 1 / priority 8)
     // ==================================================
     //
-    // Non-real-time: USB MIDI. Core 1, priority rendah,
-    // agar tidak bersaing dengan audio/trigger di Core 0.
-    // USB stack ESP32-S3 berjalan di task terpisah; pemanggil
-    // noteOn/noteOff dari task Core 1 aman.
+    // Non-real-time: USB MIDI di Core 1 (priority rendah) agar
+    // tidak bersaing dengan audio/trigger di Core 0. USB stack
+    // ESP32-S3 berjalan di task terpisah; pemanggil noteOn/
+    // noteOff dari task Core 1 aman.
 
     constexpr size_t MIDI_TASK_STACK_SIZE = 4096;
     constexpr UBaseType_t MIDI_TASK_PRIORITY = 8;

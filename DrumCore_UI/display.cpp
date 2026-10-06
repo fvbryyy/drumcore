@@ -10,24 +10,20 @@ static LiquidCrystal_I2C lcd(
     LCD_ROWS
 );
 
-// Per-row shadow buffer: a line is only pushed to the I2C LCD when its
-// content actually changes. This keeps animation and menu redraws from
-// flooding a slow 100 kHz I2C bus.
+// Shadow buffer per baris: baris hanya dikirim ke LCD I2C jika isinya berubah,
+// agar animasi/redraw menu tidak membanjiri bus I2C 100 kHz yang lambat.
 static char lineBuffer[2][LCD_COLS + 1];
 
-// ------------------------------------------------------------
-// Custom graphics characters (HD44780 5x8, 8 rows per glyph).
-// 0x00..0x05 encode the five+ levels of a single progress-bar cell and fill
-// LEFT-TO-RIGHT (the bar is a horizontal gauge, never a rising column):
-//   0x00 = empty   0x01..0x04 = left 1/5..4/5   0x05 = full
-// 0x06 = small dot glyph (reserved; kept registered for compatibility).
-// 0x07 = horizontal-rule accent (solid mid-row dash) for the symmetric
-//        "--- DRUM COK ---" delimiter on the home / boot screens.
-// ------------------------------------------------------------
+// Karakter grafis kustom (HD44780 5x8, 8 baris per glyph).
+// 0x00..0x05 = level satu sel progress bar, terisi KIRI-KE-KANAN (bar
+// horizontal, bukan kolom naik): 0x00 kosong, 0x01..0x04 kiri 1/5..4/5,
+// 0x05 penuh. 0x06 = glyph dot kecil (reserved, tetap diregistrasi untuk
+// kompatibilitas). 0x07 = aksen garis horizontal untuk delimiter simetris
+// "--- DRUM COK ---" di layar home/boot.
 
 constexpr uint8_t CUSTOM_CHARS = 8;
 
-// Creates the custom dot and rule glyphs used by the boot splash.
+// Glyph dot & rule untuk splash boot.
 static void displayCreateDotAndRule()
 {
     static const uint8_t dot[8] =
@@ -35,8 +31,8 @@ static void displayCreateDotAndRule()
         0x00, 0x06, 0x0F, 0x0F, 0x0F, 0x06, 0x00, 0x00
     };
 
-    // A line two pixels tall in the vertical middle of the cell reads as a
-    // crisp horizontal dash on a 5x8 LCD without stealing the row height.
+    // Garis 2 piksel di tengah vertikal sel terbaca sebagai dash horizontal
+    // yang tajam di LCD 5x8 tanpa mencuri tinggi baris.
     static const uint8_t rule[8] =
     {
         0x00, 0x00, 0x00, 0x1F, 0x1F, 0x00, 0x00, 0x00
@@ -68,13 +64,11 @@ static void displayCreateCustomChars()
     displayCreateDotAndRule();
 }
 
-// ------------------------------------------------------------
-// Transition reveal (left-to-right wipe).
-// displayTransitionBegin() arms the timer; every later displayPrintLine /
-// displayPrintCentered while the window is active writes its row with the
-// first `elapsed/TOTAL * 16` columns shown and the rest blanked. The reveal
-// auto-expires so it never blocks and never leaves a half-drawn line behind.
-// ------------------------------------------------------------
+// Transition reveal (wipe kiri-ke-kanan): displayTransitionBegin()
+// mempersenjatai timer; setiap displayPrintLine/displayPrintCentered selama
+// jendela aktif menulis barisnya dengan `elapsed/TOTAL * 16` kolom pertama
+// terlihat dan sisanya dikosongkan. Auto-expire sehingga tidak memblokir dan
+// tak meninggalkan baris setengah tergambar.
 
 static uint32_t transitionStartMs = 0;
 static bool transitionActive = false;
@@ -99,7 +93,6 @@ bool displayTransitionActive()
     return true;
 }
 
-// Number of columns revealed so far during the active transition.
 static uint8_t transitionCol()
 {
     if (!transitionActive)
@@ -162,7 +155,7 @@ void displayPrintLine(
 
     uint8_t wipeCol = transitionCol();
 
-    // Full-line write (no transition): skip when the row is already drawn.
+    // Lewati bila baris sudah tergambar (tulis baris penuh, tanpa transisi).
     if (wipeCol >= LCD_COLS &&
         strcmp(lineBuffer[row], out) == 0)
     {
@@ -202,8 +195,8 @@ void displayPrintAt(
         }
     }
 
-    // Mark the rest of the row unknown so a later full-line write is not
-    // skipped. Use the null-character position next to the segment.
+    // Tandai sisa baris sebagai unknown agar full-line write berikutnya tidak
+    // dilewati; pakai posisi null-character di sebelah segmen.
     if (col + len < LCD_COLS)
     {
         lineBuffer[row][col + len] = '\0';
@@ -243,7 +236,7 @@ void displayPrintCentered(
     }
     out[LCD_COLS] = '\0';
 
-    // Full-width write so no stale characters remain on the row.
+    // Tulis full-width agar tak ada karakter basi tertinggal di baris.
     displayPrintLine(row, out);
 }
 
@@ -280,7 +273,7 @@ void displayPrintRight(
     }
     out[LCD_COLS] = '\0';
 
-    // Full-width write so no stale characters remain on the row.
+    // Tulis full-width agar tak ada karakter basi tertinggal di baris.
     displayPrintLine(row, out);
 }
 
@@ -293,7 +286,6 @@ void displayDrawProgress(
     if (row >= LCD_ROWS) return;
     if (percent > 100) percent = 100;
 
-    // Total bar resolution = cells * 5 segments.
     uint16_t segs = ((uint16_t)percent * cells * 5u) / 100u;
     uint8_t fullCells = segs / 5u;
     uint8_t partial = segs % 5u;   // 0..4 -> char code 0x00..0x04
@@ -323,7 +315,7 @@ void displayDrawProgress(
         }
     }
 
-    // Mark end of bar as unknown in the shadow buffer.
+    // Tandai akhir bar sebagai unknown di shadow buffer.
     if (col + cells < LCD_COLS &&
         lineBuffer[row][col + cells] != '\0')
     {

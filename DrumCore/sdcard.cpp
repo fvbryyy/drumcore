@@ -19,11 +19,10 @@ namespace
     // SD Init Retry Config (G19)
     // ==================================================
     //
-    // Setelah crash Guru Meditation, SPI peripheral ESP32
-    // bisa meninggalkan partial state (bus mid-transaction).
-    // CS pin perlu waktu untuk settle sebelum re-init.
-    // 3 kali percobaan dengan delay meningkat memberikan
-    // waktu SPI bus dan SD card untuk recover.
+    // Setelah crash Guru Meditation, SPI peripheral ESP32 bisa
+    // meninggalkan partial state (bus mid-transaction); CS butuh
+    // waktu settle. Retry dengan delay meningkat memberi waktu
+    // SPI bus & SD card untuk recover.
 
     constexpr uint8_t  SD_INIT_RETRIES   = 3;
     constexpr uint32_t SD_RETRY_DELAY_MS = 150;
@@ -49,9 +48,9 @@ void sdInit()
     sdReady = false;
 
     // --------------------------------------------------
-    // CS idle HIGH (wajib SEBELUM SPI.begin).
-    // Di-set lebih awal supaya SD card tidak masuk ke mode
-    // SPI yang salah saat SCK pulses selama begin().
+    // CS idle HIGH (wajib SEBELUM SPI.begin) supaya SD card
+    // tidak masuk mode SPI yang salah saat SCK pulses selama
+    // begin(). Di-set sebelum SPI.begin() dipanggil.
     // --------------------------------------------------
 
     pinMode(SD_CS, OUTPUT);
@@ -82,10 +81,9 @@ void sdInit()
     // --------------------------------------------------
     // SD begin — dengan retry (G19)
     //
-    // Crash sebelumnya bisa meninggalkan SPI bus / SD card
-    // dalam partial state. Retry dengan delay memberikan
-    // kesempatan bus settle. Frekuensi SPI: 20 MHz awal;
-    // bila semua attempt gagal, log detail diagnostic.
+    // Crash sebelumnya bisa meninggalkan bus/card partial state;
+    // retry + delay memberi kesempatan bus settle. Frekuensi
+    // 20 MHz; bila semua attempt gagal, log detail diagnostic.
     // --------------------------------------------------
 
     bool initOk = false;
@@ -115,9 +113,8 @@ void sdInit()
 
         if (attempt < SD_INIT_RETRIES)
         {
-            // Teardown SPI sebelum retry supaya SPI state bersih.
-            // G19: tanpa end() retry hanya mengulang state
-            // yang sama — SPI peripheral tidak di-reinit.
+            // Teardown SPI sebelum retry supaya state bersih (G19:
+            // tanpa end(), retry hanya mengulang state yang sama).
             sdSPI.end();
             delay(SD_RETRY_DELAY_MS * attempt);  // backoff meningkat
 
@@ -127,7 +124,6 @@ void sdInit()
             digitalWrite(SD_CS, HIGH);
             delay(10);
 
-            // Re-begin SPI.
             sdSPI.begin(SD_SCK, SD_MISO, SD_MOSI, SD_CS);
             delay(5);
         }
@@ -213,7 +209,7 @@ void sdTask()
     // --------------------------------------------------
     // Belum digunakan.
     //
-    // Jangan melakukan operasi SD terus-menerus di sini.
-    // Nantinya audio engine yang meminta data dari SD.
+    // Jangan operasi SD terus-menerus di sini; nantinya
+    // audio engine yang meminta data dari SD.
     // --------------------------------------------------
 }

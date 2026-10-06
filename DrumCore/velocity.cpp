@@ -5,8 +5,8 @@
 // Velocity Calculation (LUT, zero float saat runtime)
 // ======================================================
 //
-// Lookup table 4096 entries (12-bit ADC range).
-// Dibangun sekali saat startup, setelah itu zero-float.
+// Lookup table 4096 entries (12-bit ADC range), dibangun
+// sekali saat startup.
 
 constexpr uint16_t MIN_PEAK = 300;
 constexpr uint16_t MAX_PEAK = 3240;

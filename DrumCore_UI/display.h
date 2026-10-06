@@ -11,10 +11,9 @@ void displayInit();
 
 void displayClear();
 
-// Write text starting at column 0 of a row. The row is space-padded to the
-// full 16 columns and cached, so unchanged rows are not rewritten to the LCD.
-// While a transition reveal is active (displayTransitionBegin), the line is
-// instead written progressively from the left (a left-to-right wipe).
+// Tulis teks dari kolom 0; baris dipad ke 16 kolom dan di-cache sehingga baris
+// yang tak berubah tidak ditulis ulang ke LCD. Selama transition reveal aktif
+// (displayTransitionBegin), baris ditulis progresif dari kiri (wipe kiri-ke-kanan).
 void displayPrintLine(
     uint8_t row,
     const char* text);
@@ -35,34 +34,31 @@ void displayPrintRight(
     uint8_t row,
     const char* text);
 
-// Draw a horizontal progress bar of `cells` cells starting at `col`.
-// `percent` clamps to 0..100. The bar is made of custom graphics characters
-// that fill LEFT-TO-RIGHT inside every cell (0x00 = empty, 0x05 = full,
-// 0x01..0x04 = 1/5..4/5 of the cell filled), so the bar always grows
-// horizontally like a proper gauge.
+// Gambar progress bar horizontal `cells` sel mulai `col`; `percent` dijepit
+// 0..100. Sel terisi KIRI-KE-KANAN (0x00 kosong, 0x05 penuh, 0x01..0x04
+// sebagian), jadi bar selalu tumbuh seperti gauge yang benar.
 void displayDrawProgress(
     uint8_t row,
     uint8_t col,
     uint8_t cells,
     uint8_t percent);
 
-// Draw a single custom dot glyph (reserved; no blinking boot animation
-// uses it any more — see screens.cpp BOOT_STEP_TEXT).
+// Gambar satu glyph dot kustom (reserved; tak lagi dipakai animasi boot —
+// lihat screens.cpp BOOT_STEP_TEXT).
 void displayDrawDot(
     uint8_t row,
     uint8_t col);
 
-// Draw a horizontal-rule accent glyph (solid mid-row dash) at the given
-// cell on a row. Used to build the symmetric "--- DRUM COK ---" delimiter
-// on the boot splash frames.
-// Register position is DISPLAY_RULE_GLYPH (custom char 0x07).
+// Gambar glyph aksen garis horizontal di sel baris; dipakai membangun delimiter
+// simetris "--- DRUM COK ---" di frame splash boot. Posisi register:
+// DISPLAY_RULE_GLYPH (custom char 0x07).
 void displayDrawRule(
     uint8_t row,
     uint8_t col);
 
-// Begin a brief, non-blocking left-to-right reveal for subsequent
-// displayPrintLine / displayPrintCentered writes. The reveal lasts
-// TRANSITION_MS (config.h) and auto-expires, so it never blocks the loop.
+// Mulai reveal kiri-ke-kanan non-blocking untuk displayPrintLine /
+// displayPrintCentered berikutnya. Berlangsung TRANSITION_MS (config.h) dan
+// auto-expire, jadi tidak pernah memblokir loop.
 void displayTransitionBegin();
 
 // True while a transition reveal is in progress (and has not yet expired).

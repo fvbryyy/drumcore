@@ -19,28 +19,22 @@
 
 namespace
 {
-    // UART1 hardware
     HardwareSerial UartPort(1);
 
     // Control-plane runtime state (dari NVS saat boot, diubah
     // oleh command UART). Bukan realtime path.
     uint8_t uartActiveKit  = 0;
-    uint8_t uartPreviewKit = 0;   // preview index, does NOT trigger kit load
+    uint8_t uartPreviewKit = 0;   // index preview, TIDAK memicu kit load
     uint8_t uartVolume     = 0;
 
     // Task handle + stack
     //
-    // G19: UART_TASK_STACK dinaikkan dari 4096 ke 8192.
-    // Audit stack menunjukkan call chain CMD_KIT_LOAD
-    // (performKitSwitch → kitLoaderBuildPath →
-    // resolveKitDirWithMeta → readKitMeta → deserializeJson
-    // → kitLoaderLoad → psramLoadKit) menghabiskan estimasi
-    // 3200-3800 byte — margin 300-900 byte dari 4096, terlalu
-    // tipis untuk ArduinoJson + SD stack alignment. Stack
-    // canary watchpoint terbukti dipicu dari CMD_KIT_LOAD.
-    // 8192 memberikan ~4096 byte headroom yang rasional.
+    // G19: stack 4096 -> 8192. Call chain CMD_KIT_LOAD memakai
+    // estimasi 3200-3800 byte (margin 300-900 byte terlalu tipis;
+    // canary watchpoint terbukti terpicu dari CMD_KIT_LOAD).
+    // 8192 memberi ~4096 byte headroom.
     TaskHandle_t uartTaskHandle = nullptr;
-    constexpr uint32_t UART_TASK_STACK = 8192;   // G19: was 4096, overflow proven
+    constexpr uint32_t UART_TASK_STACK = 8192;   // G19: dulu 4096, overflow terbukti
     constexpr uint32_t KIT_INFO_TASK_STACK = 6144;
     constexpr uint8_t  UART_TASK_PRIORITY = 5;   // Core 1, di bawah midi(8)
 
@@ -64,9 +58,9 @@ namespace
     // ==================================================
     //
     // Nama (maks KIT_NAME_MAX) datang sebagai header + chunk
-    // 3 char/frame (sama mekanisme KIT_INFO). State dibuat per
-    // request: header baru menimbulkan rename state baru, chunk
-    // dengan seq berbeda diabaikan (noise/sisa request lama).
+    // 3 char/frame (mekanisme sama dgn KIT_INFO). Header baru =
+    // sesi baru; chunk dgn seq berbeda diabaikan (noise/sisa
+    // request lama).
 
     bool   renamePending = false;
     uint8_t renameSeq    = 0;
@@ -76,8 +70,8 @@ namespace
     char   renameName[KIT_NAME_MAX + 1] = {0};
 
     // CREATE bernama (G4): sesi transfer nama TERSENDIRI dari
-    // RENAME (tidak boleh saling tumpang-tindih). Header membawa
-    // panjang nama; chunk 3 char/frame mengisi createName.
+    // RENAME (tidak boleh tumpang-tindih). Header membawa panjang
+    // nama; chunk 3 char/frame mengisi createName.
     bool    createPending = false;
     uint8_t createSeq     = 0;
     uint8_t createLen     = 0;
@@ -93,7 +87,6 @@ namespace
     uint8_t psGot     = 0;
     char    psName[SAMPLE_NAME_MAX + 1] = {0};
 
-    // Map KitOpResult (kit_manager) ke status protokol UART.
     uint8_t kitResultToStatus(KitOpResult r)
     {
         switch (r)
@@ -134,7 +127,6 @@ namespace
         uint8_t seq
     )
     {
-        // CRC 8-bit = XOR(CMD,ARG0..ARG3,SEQ)
         return (uint8_t)(cmd ^ a0 ^ a1 ^ a2 ^ a3 ^ seq);
     }
 
@@ -172,7 +164,6 @@ namespace
         return (n == UART_FRAME_LEN);
     }
 
-    // Respon: CMD | RESP_FLAG, status di ARG0
     void sendResponse(
         uint8_t reqCmd,
         uint8_t status,
@@ -196,12 +187,10 @@ namespace
     // Kit-info name chunks (CMD_KIT_INFO, TASK 1)
     // ==================================================
     //
-    // Kirim nama kit sebagai frame chunk berurutan (3 char per
-    // frame; frame header menandakan mulai). Setiap frame:
+    // Nama kit dikirim sebagai frame chunk berurutan (3 char/frame):
     //   [0] SOF  [1] CMD|RESP_FLAG  [2] chunkIdx|0x80
     //   [3..5] char0..char2  [6] SEQ  [7] CRC
-    // Max 28 char -> 10 chunk. Header mendahului via ARG0 tanpa
-    // bit 0x80; chunk ditandai bit 0x80 di ARG0.
+    // Maks 28 char -> 10 chunk. Header = ARG0 tanpa bit 0x80.
     void sendKitInfoNameFrames(
         const char *name,
         uint8_t seq
@@ -279,8 +268,8 @@ namespace
             }
             else if (!sdIsReady())
             {
-                // G19: Bedakan SD failure dari kit memang tidak ada.
-                // UNNAMED dari SD failure bukan bug cache/nama.
+                // G19: bedakan SD failure dari kit yang memang tidak
+                // ada — UNNAMED di sini bukan bug cache/nama.
                 Serial0.printf(
                     "[KIT INFO ESP] RESOLVE idx=%u -> SD NOT READY (name unresolvable)\n",
                     (unsigned)kitIndex
@@ -302,8 +291,8 @@ namespace
         }
         else
         {
-            // Debug off: pastikan nama tetap fallback "UNNAMED"
-            // bila found=false (agar display tidak kosong).
+            // Debug off: pastikan fallback "UNNAMED" bila found=false
+            // (agar display tidak kosong).
             if (!found && nameSize > 0 && name[0] == '\0')
             {
                 snprintf(name, nameSize, "UNNAMED");
@@ -444,10 +433,10 @@ namespace
     // Pad field access (bounds-checked)
     // ==================================================
 
-    // Batas nilai field DIAMBIL dari satu sumber kebenaran:
-    // PAD_FIELD_MIN/MAX di config.h (G8-A). Transport UART hanya
-    // membawa 16-bit, jadi maksimum otoritatif di-clamp ke 0xFFFF
-    // di lapisan ini saja (frame tetap 8-byte; format tidak berubah).
+    // Batas nilai field dari satu sumber kebenaran: PAD_FIELD_MIN/MAX
+    // di config.h (G8-A). Transport UART 16-bit, jadi maksimum
+    // otoritatif di-clamp ke 0xFFFF di lapisan ini saja (frame tetap
+    // 8-byte; format tidak berubah).
     uint32_t padFieldUartMax(uint8_t fieldId)
     {
         uint32_t m = PAD_FIELD_MAX[fieldId];
@@ -487,7 +476,6 @@ namespace
                 break;
 
             case FIELD_RELEASE_THRESH:
-                // harus < threshold
                 if (value >= cfg.threshold)
                 {
                     return false;
@@ -565,10 +553,9 @@ namespace
     // ==================================================
     // Thread-safe pad config update
     //
-    // TriggerTask (Core 1, prio 23) membaca pad.config saat
-    // scan/hit. Update config dari UART task memakai critical
-    // section singkat (µs). Karena tiap field atomic + lock
-    // writer, aman tanpa mengubah scheduler/priority.
+    // TriggerTask (Core 1, prio 23) membaca pad.config saat scan/hit.
+    // Update dari UART task memakai critical section singkat (µs):
+    // tiap field atomic + single writer, aman tanpa ubah scheduler.
     // ==================================================
 
     portMUX_TYPE uartSpin = portMUX_INITIALIZER_UNLOCKED;
@@ -596,18 +583,13 @@ namespace
     // ==================================================
     // Sample registry resync (G8-B)
     //
-    // PAD_SET sampleId mengubah mapping pad->slot. Arsitektur
-    // yang ada membuat SEMUA field PAD_SET langsung runtime-
-    // effective (menulis copy runtime `run`); sampleId tidak
-    // terkecuali: dibangun ulang registry pad->slot dari config
-    // efektif SEKARANG. PSRAM tidak di-unload/reload (file 12
-    // slot sudah dimuat); hanya tabel mapping 12-byte yang
-    // di-update. Audio membaca slotForPad per-hit; tiap entry
-    // uint8 ditulis atomik, jadi pad yang kena hit saat remap
-    // memakai slot lama ATAU baru (dua-duanya valid & termuat) —
-    // tidak perlu lock tambahan, arsitektur task tidak berubah.
-    // PERSISTENSI tetap via CMD_KIT_SAVE (model sama dgn field
-    // lain: PAD_SET = RAM, KIT_SAVE = NVS, reload = NVS+JSON).
+    // PAD_SET sampleId langsung runtime-effective seperti field lain:
+    // registry pad->slot dibangun ulang dari config efektif SEKARANG.
+    // PSRAM tidak di-unload/reload (12 slot sudah termuat); hanya
+    // tabel mapping 12-byte yang di-update. Tiap entry uint8 ditulis
+    // atomik, jadi hit saat remap memakai slot lama ATAU baru
+    // (keduanya valid & termuat) — tanpa lock tambahan.
+    // Persistensi tetap via CMD_KIT_SAVE (PAD_SET = RAM).
     // ==================================================
 
     void uartApplySampleIdRegistry()
@@ -625,12 +607,10 @@ namespace
     // ==================================================
     // Kit Switch (control op — BUKAN realtime path)
     //
-    // Audio engine memegang pointer PSRAM (voicePtr) selama
-    // voice aktif. Sebelum unload/load kit, TUNGGU sampai
-    // tidak ada voice aktif (audioActiveVoiceCount()==0)
-    // agar tidak membebaskan PSRAM yang sedang dibaca.
-    // Setelah unload, psramGetData()=nullptr -> startVoice
-    // bails aman. Seluruh op blocking di task UART (prio 5),
+    // Audio engine memegang pointer PSRAM selama voice aktif. Sebelum
+    // unload/load kit, TUNGGU sampai tidak ada voice aktif
+    // (audioActiveVoiceCount()==0) agar tidak membebaskan PSRAM yang
+    // sedang dibaca. Seluruh op blocking di task UART (prio 5),
     // tidak memblok Trigger/Audio.
     // ==================================================
 
@@ -650,35 +630,30 @@ namespace
 
         // ==================================================
         // 1. Gate hit acceptance SEKARANG, sebelum apa pun.
-        //    Hit baru dibuang; voice yang sudah aktif tetap
-        //    selesai NORMAL (tidak dipotong). Hanya atomic
-        //    flag, tidak ada blocking di realtime path.
+        //    Hit baru dibuang; voice aktif tetap selesai NORMAL
+        //    (tidak dipotong). Hanya atomic flag, tanpa blocking
+        //    di realtime path.
         // ==================================================
 
         audioSetHitAccept(false);
 
         // ==================================================
-        // 2. Tunggu voice aktif selesai. Karena hit baru sudah
-        //    di-gate, count akan turun ke 0 tanpa diisi lagi.
-        //    Deadline adaptif = sisa durasi voice terpanjang
-        //    + margin (crash/cymbal bisa berbunyi ~detik).
+        // 2. Tunggu voice aktif selesai (hit baru sudah di-gate,
+        //    count turun ke 0). Deadline adaptif = sisa durasi
+        //    voice terpanjang + margin (crash/cymbal ~detik).
         // ==================================================
 
         const uint32_t waitStartMs = millis();
 
-        // Dari gate-off ke sini, TIDAK ada lagi voice baru
-        // (hit ring di-discard). Baseline sisa durasi voice
-        // terpanjang diambil SEKALI di awal, dan deadline
+        // Dari gate-off ke sini TIDAK ada voice baru. Baseline sisa
+        // durasi voice terpanjang diambil SEKALI di awal; deadline
         // dibuat FIXED.
         //
-        // PENTING — jangan recompute deadline dengan remainUs
-        // tiap iterasi: remainUs = sisa byte / rate, yang
-        // KEHILANGAN nilainya seiring playback. Deadline yang
-        // ikut mengecil membuat loop menyerah (BUSY) kira-kira
-        // di SETENGAH durasi voice — persis gejala "busy saat
-        // crash/cymbal dimainkan". Deadline DISINI berbasis
-        // baseline penuh (panjang sample asli) + margin,
-        // sehingga switch menunggu voice selesai sungguhan.
+        // PENTING — jangan recompute deadline tiap iterasi: remainUs
+        // (= sisa byte / rate) MENYUSUT seiring playback, sehingga
+        // deadline yang ikut mengecil membuat loop menyerah (BUSY)
+        // kira-kira di SETENGAH durasi voice. Deadline di sini
+        // berbasis baseline penuh (panjang sample asli) + margin.
 
         const uint32_t remainUs0 =
             audioActiveVoiceMaxRemainingUs();
@@ -730,12 +705,9 @@ namespace
         //    Kit aktif lama (PadConfig + kit index) tidak boleh
         //    rusak jika load gagal (safety SD/JSON/PSRAM).
         //
-        // G19: cfgSnapshot + runSnapshot dipindahkan ke static
-        // untuk menghilangkan 720 byte dari stack frame
-        // performKitSwitch (12 × PadConfig × 2 array).
-        // AMAN: performKitSwitch hanya dipanggil dari dispatch()
-        // yang berjalan di satu thread (UartTask) — non-reentrant
-        // by design, static tidak menambah risiko.
+        // G19: snapshot dipindah ke static untuk menghemat 720 byte
+        // stack frame (12 × PadConfig × 2 array). AMAN: dipanggil
+        // hanya dari dispatch() satu thread (UartTask) — non-reentrant.
         // ==================================================
 
         static PadConfig cfgSnapshot[PAD_COUNT];
@@ -767,9 +739,7 @@ namespace
             if (psramSetup())
             {
                 // KIT RUNTIME: mapping by filename -> slot == pad
-                // index (identity). NVS per-kit sudah dimigrasi &
-                // dibuang; sampleIds identity sehingga registry
-                // slotForPad[i] = i.
+                // index (identity), sehingga slotForPad[i] = i.
                 const char *kitPaths[PAD_COUNT];
                 uint8_t sampleIds[PAD_COUNT];
 
@@ -780,10 +750,9 @@ namespace
                     sampleIds[i] = i;   // identity
                 }
 
-                // Return-nya WAJIB diperiksa: psramLoadKit()
-                // memakai desain free-then-alloc, jadi kalau
-                // ps_malloc() gagal PSRAM sudah kosong dan kita
-                // HARUS reload kit lama (lihat blok rollback).
+                // Return WAJIB diperiksa: psramLoadKit() free-then-
+                // alloc, jadi kalau ps_malloc() gagal PSRAM sudah
+                // kosong dan kit lama HARUS di-reload (lihat rollback).
                 loadOk = psramLoadKit(kitPaths, sampleIds, PAD_COUNT);
             }
         }
@@ -798,9 +767,8 @@ namespace
             // hanya setelah SEMUA operasi switch berhasil.
             uartActiveKit = newKit;
 
-            // Persist global (TEST G): restart berikutnya boot ke
-            // kit yang sama. Best-effort (gagal NVS tidak
-            // menggagalkan switch). Volume tidak pernah berubah.
+            // Persist global (best-effort): restart berikutnya boot
+            // ke kit yang sama. Volume tidak pernah berubah.
             persistenceSaveGlobal(uartActiveKit, uartVolume);
 
             if constexpr (DEBUG_UART)
@@ -832,23 +800,12 @@ namespace
 
             // ---------------------------------------------
             // G23: PSRAM TIDAK otomatis utuh setelah load gagal.
-            //
-            // psramLoadKit() memakai desain free-then-alloc
-            // (satu blok, tanpa double buffer): blok kit lama
-            // DAN slot runtime G21 dibebaskan SEBELUM
-            // ps_malloc() blok baru. Kalau alokasi itu gagal,
-            // PSRAM sudah KOSONG sementara uartActiveKit masih
-            // menunjuk kit lama -> drum bisu total.
-            //
-            // Konsekuensi: hanya mengembalikan
-            // uartActiveKit/PadConfig TIDAK cukup; kit lama
-            // harus DIMUAT ULANG supaya "rollback" benar-benar
-            // berarti "kit A valid lagi, sample A tersedia
-            // lagi, mapping A tetap".
-            //
-            // Aman karena kita masih di dalam regions yang sama:
-            // hit gate masih OFF dan audioActiveVoiceCount()==0
-            // sudah dibuktikan di atas, jadi tidak ada voice yang
+            // psramLoadKit() free-then-alloc: blok kit lama + slot
+            // runtime dibebaskan SEBELUM alokasi baru. Kalau gagal,
+            // PSRAM sudah KOSONG -> drum bisu total. Karena itu
+            // mengembalikan uartActiveKit/PadConfig TIDAK cukup;
+            // kit lama harus DIMUAT ULANG. Aman: hit gate masih OFF
+            // dan voice count == 0, jadi tidak ada voice yang
             // membaca buffer yang dibebaskan.
             // ---------------------------------------------
             bool restored = false;
@@ -874,10 +831,9 @@ namespace
             else
             {
                 // Kit lama juga gagal dimuat. uartActiveKit sengaja
-                // TIDAK diubah (tetap menunjuk kit lama = intent
-                // pengguna), tapi PSRAM kosong sehingga drum bisu
-                // sampai KIT LOAD berikutnya sukses. Keadaan ini
-                // harus terlihat, bukan disembunyikan.
+                // TIDAK diubah (tetap = intent pengguna), tapi PSRAM
+                // kosong -> drum bisu sampai KIT LOAD berikutnya
+                // sukses. Keadaan ini harus terlihat, bukan disembunyikan.
                 Serial0.println(
                     "[UART] ROLLBACK FAILED - PSRAM empty, no kit active"
                 );
@@ -887,8 +843,8 @@ namespace
         }
 
         // ==================================================
-        // 6. Buang sisa hit lama dari ring, BARU aktifkan
-        //    kembali penerimaan hit (acceptance F).
+        // 6. Buang sisa hit lama dari ring, BARU aktifkan kembali
+        //    penerimaan hit.
         // ==================================================
 
         for (;;)
@@ -910,35 +866,21 @@ namespace
     // PAD -> SOUND runtime remap (G21)
     // ==================================================
     //
-    // PAD_SOUND_SET HANYA mengubah mapping pad -> slot PSRAM. Jalur
-    // ini tidak pernah memuat ulang kit:
+    // PAD_SOUND_SET HANYA mengubah mapping pad -> slot PSRAM, tidak
+    // pernah memuat ulang kit:
+    //   file SUDAH di PSRAM -> psramFindSlotByPath() (memory-only)
+    //     -> psramSetPadSlot() (satu store uint8) -> SELESAI.
+    //   file BARU -> psramLoadSingleSample() baca SATU file ke blok
+    //     PSRAM sendiri -> psramSetPadSlot(). 11 sample lain utuh.
     //
-    //   file SUDAH di PSRAM
-    //     -> psramFindSlotByPath()   lookup registry, memory-only
-    //     -> psramSetPadSlot()       satu store uint8 di slotForPad
-    //     -> SELESAI (tanpa SD, tanpa malloc, tanpa gate)
+    // Kenapa TANPA hit-gate + tunggu-voice seperti KIT SWITCH: jalur
+    // remap hanya menulis 1 byte di slotForPad (voice yang bunyi tak
+    // mungkin dapat pointer rusak); jalur file baru hanya MENGALOKASI
+    // buffer baru (tidak ada pointer lama yang di-rebase/di-free).
+    // Voice aktif dibiarkan selesai normal; tidak ada hit hilang.
     //
-    //   file BARU di folder samples kit aktif
-    //     -> psramLoadSingleSample() baca SATU file, alokasi PSRAM
-    //        sendiri, daftar slot baru
-    //     -> psramSetPadSlot()       remap ke slot baru
-    //     -> 11 sample lain tidak disentuh sama sekali
-    //
-    // Kenapa TIDAK ada hit-gate + tunggu-voice seperti KIT SWITCH:
-    //   - jalur remap hanya menulis 1 byte di slotForPad; tidak ada
-    //     buffer PSRAM yang ditulis atau di-free, jadi voice yang
-    //     sedang bunyi tidak mungkin memakai pointer rusak;
-    //   - jalur file baru hanya MENGALOKASI buffer baru (slot punya
-    //     alokasi sendiri) — tidak ada pointer PCM lama yang perlu
-    //     di-rebase atau di-free;
-    //   - voice aktif dibiarkan selesai normal; tidak ada hit hilang.
-    // PSRAM kit tetap di-free HANYA pada KIT SWITCH
-    // (performKitSwitch), yang masih memakai gate + tunggu voice.
-    //
-    // Gagal = tidak ada yang di-commit (mapping RAM maupun slot
-    // tetap seperti semula), jadi tidak ada rollback yang perlu
-    // dijalankan. Persistensi tetap lewat CMD_KIT_SAVE (nama file
-    // di kit.json) — fungsi ini tidak pernah menulis SD.
+    // Gagal = tidak ada yang di-commit (tanpa rollback). Persistensi
+    // tetap lewat CMD_KIT_SAVE — fungsi ini tidak pernah menulis SD.
     // ==================================================
 
     __attribute__((noinline)) uint8_t performSampleAssign(
@@ -966,8 +908,7 @@ namespace
             );
         }
 
-        // Idempoten: mapping sudah persis sama -> OK tanpa lookup,
-        // tanpa SD, tanpa load. (PAD01 -> KICK.wav dua kali)
+        // Idempoten: mapping sudah sama -> OK tanpa lookup/SD/load.
         const char *cur = kitLoaderResolvedSamplePath(padIndex);
 
         if (cur && absPath && strcmp(cur, absPath) == 0)
@@ -981,10 +922,8 @@ namespace
             return STATUS_OK;
         }
 
-        // UNASSIGN: pad menjadi senyap. Sample yang pernah dipakai
-        // pad ini TIDAK di-free — pad lain / voice aktif boleh masih
-        // memakainya, dan membiarkan slot hidup adalah perilaku
-        // aman minimum yang diminta.
+        // UNASSIGN: pad senyap. Sample lama TIDAK di-free — pad lain /
+        // voice aktif boleh masih memakainya.
         if (!absPath || absPath[0] == '\0')
         {
             psramSetPadSlot(padIndex, PSRAM_SLOT_NONE);
@@ -1034,10 +973,8 @@ namespace
 
         // ---- Skenario B: file baru -> load SATU file ----
         //
-        // Tidak ada unload/reload 11 sample lain, tidak ada
-        // performKitSwitch, tidak ada full kit load.
-        // psramIsLoaded() berarti kit sudah termuat, jadi PSRAM
-        // sudah pasti siap (dijamin jalur full kit load).
+        // Tidak ada unload/reload 11 sample lain. psramIsLoaded()
+        // berarti kit sudah termuat (dijamin jalur full kit load).
         if (!sdIsReady() || !psramIsLoaded())
         {
             if constexpr (DEBUG_SOUND_SET)
@@ -1148,19 +1085,19 @@ namespace
 
             // ---- Kit ----
             //
-            // NEXT/PREV: preview only — update uartPreviewKit,
-            // do NOT call performKitSwitch(). The active kit and
-            // PSRAM/NVS remain unchanged until LOAD is issued.
+            // NEXT/PREV: preview saja — update uartPreviewKit, JANGAN
+            // panggil performKitSwitch(). Kit aktif + PSRAM/NVS tidak
+            // berubah sampai LOAD diterima.
             //
-            // LOAD: the ONLY command that triggers a full kit
-            // switch (JSON + PadConfig + PSRAM + NVS + activeKit).
+            // LOAD: SATU-SATUNYA command yang memicu full kit switch
+            // (JSON + PadConfig + PSRAM + NVS + activeKit).
 
             case CMD_KIT_NEXT: {
                 if (uartPreviewKit < UART_MAX_KIT)
                 {
                     uartPreviewKit++;
                 }
-                // Always respond STATUS_OK so Wemos updates its display.
+                // Selalu STATUS_OK agar Wemos update display.
                 sendResponse(cmd, STATUS_OK, uartPreviewKit, 0, 0, seq);
                 break;
             }
@@ -1201,17 +1138,16 @@ namespace
 
                 if (st == STATUS_OK)
                 {
-                    uartPreviewKit = uartActiveKit;  // sync preview
+                    uartPreviewKit = uartActiveKit;  // sinkron preview
                 }
                 sendResponse(cmd, st, uartActiveKit, 0, 0, seq);
                 break;
             }
 
             case CMD_KIT_SAVE:
-                // KIT RUNTIME: save = serialize config EFEKTIF RAM
-                // (PadConfig + mapping sample by filename) ke
-                // kit.json kit aktif (atomic). NVS per-kit TIDAK
-                // lagi ditulis (kit.json = source of truth).
+                // KIT RUNTIME: serialize config EFEKTIF RAM (PadConfig +
+                // mapping sample by filename) ke kit.json kit aktif
+                // (atomic). NVS per-kit TIDAK lagi ditulis.
                 {
                     KitOpResult kr = kitManagerSaveActive();
                     if (kr == KitOpResult::OK)
@@ -1319,10 +1255,9 @@ namespace
             //
             // Header: ARG0 = 0 (cadangan), ARG1 = panjang nama.
             // Chunk : ARG0 = (chunkIdx | 0x80), ARG1..3 = hingga
-            //         3 char nama (mekanisme sama seperti RENAME).
+            //         3 char nama (mekanisme sama dgn RENAME).
             // ESP32 memilih slot kosong otomatis; konsep slot tidak
-            // diekspos ke user. Respon = satu frame status (ARG1 =
-            // slot terisi — internal/instrumentasi).
+            // diekspos ke user. Respon = satu frame status.
             case CMD_KIT_CREATE_EMPTY_NAMED:
             case CMD_KIT_CREATE_COPY_NAMED: {
                 const uint8_t cCmd = cmd;
@@ -1404,9 +1339,9 @@ namespace
                 uint16_t value = (uint16_t)(a2 | (a3 << 8));
                 if (uartSetPadField(a0, a1, value))
                 {
-                    // G8-B: sampleId PAD_SET = runtime-effective
-                    // SEKARANG (registry pad->slot disinkronkan),
-                    // konsisten dgn semua field PAD_SET lain.
+                    // G8-B: sampleId langsung runtime-effective
+                    // (registry pad->slot disinkronkan), konsisten
+                    // dgn field PAD_SET lain.
                     if (a1 == FIELD_SAMPLE_ID)
                     {
                         uartApplySampleIdRegistry();
@@ -1431,13 +1366,12 @@ namespace
                     sendResponse(cmd, STATUS_INVALID_VALUE, a0, a1, 0, seq);
                     break;
                 }
-                // G1 fix: nilai field 16-bit dikirim sebagai DUA frame
-                // berurutan dengan SEQ sama, supaya tidak ada byte yang
-                // terpotong dalam frame 8-byte (4 arg):
-                //   frame lo : ARG1=pad, ARG2=field,        ARG3=byte rendah
-                //   frame hi : ARG1=pad, ARG2=field|0x80,   ARG3=byte tinggi
-                // Format sama dengan dump pad CMD_FULL_SYNC (di bawah),
-                // dan posisi pad/field sama dengan respon CMD_PAD_SET.
+                // G1 fix: nilai 16-bit dikirim sebagai DUA frame berurutan
+                // dgn SEQ sama (frame 8-byte hanya muat 4 arg):
+                //   frame lo : ARG1=pad, ARG2=field,      ARG3=byte rendah
+                //   frame hi : ARG1=pad, ARG2=field|0x80, ARG3=byte tinggi
+                // Format sama dgn dump pad CMD_FULL_SYNC; posisi pad/field
+                // sama dgn respon CMD_PAD_SET.
                 uint16_t value = getPadField(getPadConfig(a0), a1);
                 sendResponse(
                     cmd,
@@ -1460,15 +1394,12 @@ namespace
             //
             // Read-only, control plane. Daftar suara = scan folder
             // samples kit AKTIF (sorted, cap PAD_COUNT) — mapping by
-            // FILENAME. Request ARG0 = index pad yang ingin dilihat
-            // (utk menghitung "current index" di ARG3).
+            // FILENAME. Request ARG0 = index pad (utk "current index").
             // Respon:
-            //   frame header     : ARG0=STATUS_OK (ARG0=status),
-            //                      ARG1=jumlah ter-scan, ARG2=0xC7,
-            //                      ARG3=index suara pad tsb di daftar
-            //                      (0xFF bila tidak ada / unassigned).
-            //   frame nama-header: ARG0=index suara (tanpa 0x80),
-            //                      ARG1=panjang nama, ARG2=0, ARG3=0.
+            //   frame header     : ARG0=STATUS_OK, ARG1=jumlah ter-scan,
+            //                      ARG2=0xC7, ARG3=index suara pad tsb
+            //                      di daftar (0xFF bila unassigned).
+            //   frame nama-header: ARG0=index suara, ARG1=panjang nama.
             //   frame chunk      : ARG0=(chunkIdx|0x80), ARG1..3=nama.
             // TIDAK mengubah state apa pun (kit/PSRAM/NVS).
             case CMD_PAD_SOUND: {
@@ -1573,12 +1504,10 @@ namespace
             // Assign WAV dari folder samples kit AKTIF ke sebuah pad.
             // RAM-only sampai CMD_KIT_SAVE. Mekanisme nama chunked
             // identik CMD_KIT_RENAME:
-            //   header: ARG0=index pad, ARG1=panjang nama (≤
-            //           SAMPLE_NAME_MAX).      chunk: ARG0=(idx|0x80).
-            // Validasi: nama valid (kitLoaderValidateSampleName) +
-            // file ADA di folder samples (#include kit_loader API).
-            // Sukses = performSampleAssign (gate+tunggu+reload).
-            // Respon = satu frame status (seq = seq REQUEST header).
+            //   header: ARG0=index pad, ARG1=panjang nama.
+            //   chunk : ARG0=(idx|0x80).
+            // Validasi: nama valid + file ADA di folder samples.
+            // Sukses = performSampleAssign. Respon = satu frame status.
             case CMD_PAD_SOUND_SET: {
                 if (a0 & 0x80)
                 {
@@ -1629,11 +1558,9 @@ namespace
                                 psName
                             );
 
-                            // Pastikan langkah terakhir aman: path
-                            // absolut di dalam folder samples, file
-                            // wajib ADA atau assign ditolak (tidak
-                            // memperkenalkan mapping yang tak
-                            // ter-loadable).
+                            // Pastikan path absolut di dalam folder
+                            // samples dan file ADA — assign ditolak
+                            // bila mapping tak ter-loadable.
                             if (SD.exists(abs))
                             {
                                 st = performSampleAssign(psPad, abs);
@@ -1707,8 +1634,7 @@ namespace
                     seq
                 );
 
-                // Kirim nama kit (dipecah jadi chunk 4-byte; max 4 char
-                // per frame, max ~7 frame). Flag master di byte pertama.
+                // Kirim nama kit (dipecah jadi chunk 4 char/frame).
                 const char *name = kitLoaderGetName();
                 uint8_t nameLen = 0;
                 while (name[nameLen] != '\0' && nameLen < 28)
@@ -1732,9 +1658,8 @@ namespace
                     chunk++;
                 }
 
-                // Dump seluruh PadConfig user field per pad. Nilai 16-bit
-                // dikirim sebagai DUA frame per field (lo + hi), format
-                // identik dengan respon CMD_PAD_GET (lihat di atas).
+                // Dump seluruh PadConfig per pad. Nilai 16-bit = DUA
+                // frame per field (lo + hi), format identik CMD_PAD_GET.
                 for (uint8_t p = 0; p < PAD_COUNT; p++)
                 {
                     for (uint8_t fld = 0; fld < FIELD_COUNT; fld++)
@@ -1791,7 +1716,6 @@ namespace
 
                     if (frameIdx >= UART_FRAME_LEN)
                     {
-                        // Validasi CRC
                         uint8_t crc = frameCrc(
                             frame[1], frame[2], frame[3],
                             frame[4], frame[5], frame[6]
@@ -1808,8 +1732,8 @@ namespace
                             {
                                 Serial0.println("[UART] CRC error, resync");
                             }
-                            // Balas CRC error dgn CMD yang sempat
-                            // terbaca (kalau ada), lalu cari SOF lagi.
+                            // Balas CRC error dgn CMD yang sempat terbaca,
+                            // lalu cari SOF lagi.
                             uint8_t badCmd = frame[1];
                             uint8_t badSeq = frame[6];
                             sendFrame(
@@ -1831,8 +1755,8 @@ namespace
 
     void uartTaskLoop(void *)
     {
-        // G19: Stack watermark interval — report saat debug.
-        // Di release build (DEBUG_UART=false) ini di-compile out.
+        // G19: stack watermark report saat debug (compile-out bila
+        // DEBUG_UART=false).
         uint32_t lastWatermarkMs = 0;
         constexpr uint32_t WATERMARK_INTERVAL_MS = 10000;  // 10s
 
@@ -1865,7 +1789,7 @@ namespace
 void uartProtocolInit(uint8_t activeKit, uint8_t volume)
 {
     uartActiveKit  = activeKit;
-    uartPreviewKit = activeKit;   // preview starts at loaded kit
+    uartPreviewKit = activeKit;   // preview mulai dari kit aktif
     uartVolume     = volume;
 
     UartPort.begin(

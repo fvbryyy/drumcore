@@ -37,9 +37,8 @@ constexpr size_t BUFFER_BYTES =
 // ======================================================
 // PLAYABILITY counters (DEBUG_PLAYABILITY)
 // ======================================================
-// Single-writer per counter di real-time path; dibaca oleh
-// laporan dari Core 1. Non-invasif: hanya increment, tanpa
-// atomik/flush/print di sini. Nol biaya saat flag = 0.
+// Single-writer per counter di real-time path; dibaca laporan dari Core 1.
+// Non-invasif: hanya increment, tanpa atomik/flush/print. Nol biaya saat flag = 0.
 
 #if DEBUG_PLAYABILITY
 uint32_t pbTriggerHits = 0;
@@ -56,15 +55,13 @@ uint32_t pbPrefetchFail = 0;
 // ======================================================
 //
 // Backlog diukur dari driver, bukan estimasi micros():
-//   ahead = byte yang sudah dimuat ke DMA (accepted)
+//   ahead = byte yang dimuat ke DMA (accepted)
 //         - byte yang BENAR-BENAR selesai dimainkan
-//           (callback TX on_sent, event->size per
-//            deskriptor).
+//           (callback TX on_sent, event->size per deskriptor).
 //
-// Chunk baru hanya diproduksi saat ahead < batas.
-// Phase 3A: BUFFER_FRAMES 128 -> 64, jadi satu chunk =
-// 64 frame * 4 byte = 256 byte = 1.33 ms. Batas 512B =
-// 2 chunk = 2.67 ms. Deskriptor DMA di library (ESP_I2S)
+// Chunk baru hanya diproduksi saat ahead < batas. Phase 3A: BUFFER_FRAMES
+// 128 -> 64, jadi satu chunk = 64 frame * 4 byte = 256 byte = 1.33 ms.
+// Batas 512B = 2 chunk = 2.67 ms. Deskriptor DMA di library (ESP_I2S)
 // tetap 960 B / 6 deskriptor, tidak diubah.
 
 constexpr uint32_t AUDIO_PACING_AHEAD_MAX_BYTES =
@@ -101,8 +98,7 @@ inline uint32_t dmaCurrentAheadBytes()
 
 bool dmaRoomForNextChunk()
 {
-    // Fail-open: jika callback tidak terpasang,
-    // perilaku identik dengan baseline lama.
+    // Fail-open: callback tidak terpasang -> perilaku identik baseline lama.
 
     if (!audioPacingCbInstalled)
     {
@@ -136,14 +132,10 @@ void buildGainTable()
 // VOICE
 // ======================================================
 //
-// VOICE_COUNT didefinisikan di config.h (dipakai juga
-// oleh profiling histogram di trigger.cpp).
-//
-// Semua state voice didukung penuh untuk VOICE_COUNT
-// (bukan hardcoded 8). Didefinisikan zero-initialized;
-// nilai default non-zero (voiceVelocityIndex = 127,
-// voiceChannels = 2) di-set oleh initVoiceState(), yang
-// dipanggil sekali dari audioInit().
+// VOICE_COUNT didefinisikan di config.h (dipakai juga profiling histogram
+// di trigger.cpp). Semua state voice full untuk VOICE_COUNT, bukan
+// hardcoded 8. Zero-initialized; default non-zero (velocity=127,
+// channels=2) di-set initVoiceState(), dipanggil sekali dari audioInit().
 
 bool voiceActive[VOICE_COUNT];
 uint32_t voiceRemaining[VOICE_COUNT];
@@ -168,10 +160,8 @@ int32_t accumBuffer[BUFFER_BYTES / 2];
 // INIT VOICE STATE
 // ======================================================
 //
-// Menyiapkan default seluruh slot voice untuk
-// VOICE_COUNT. Dipanggil SEKALI dari audioInit().
-// Tidak boleh dipanggil saat audio task sudah berjalan
-// (state voice dibaca oleh audio task).
+// Default seluruh slot voice. Dipanggil SEKALI dari audioInit() - jangan
+// saat audio task sudah berjalan (state voice dibaca audio task).
 
 void initVoiceState()
 {
@@ -332,11 +322,9 @@ void recordE2eDelta(
 // 2-VOICE DEBUG PROFILING (audit instrumentation only)
 // ======================================================
 //
-// TIDAK mengubah behavior audio apa pun.
-// Semua hook di bawah hanya: increment counter,
-// tulis event ke ring buffer RAM, dan dump chunked
-// (1 baris per loop pass agar UART tidak memblokir
-// audioTask lebih dari ~4ms; TX DMA backlog ~29ms
+// TIDAK mengubah behavior audio apa pun. Hook hanya: increment counter,
+// tulis event ke ring buffer RAM, dan dump chunked (1 baris per loop pass
+// agar UART tidak memblokir audioTask > ~4ms; TX DMA backlog ~29ms
 // menutupi stall sebesar itu).
 
 enum : uint8_t
@@ -360,20 +348,11 @@ constexpr uint8_t DBG_STEAL_AUDIT_MAX = 8;
 constexpr uint8_t DBG_FAIL_AUDIT_MAX = 8;
 constexpr uint32_t DBG_REPORT_INTERVAL_MS = 5000;
 
-// Field packing event CLOSE:
-//   sample = sample index voice tsb
-//   aux    = actual lifetime (us)
-//   aux2   = expected duration sample (us)
-//
-// Field packing utk event STEAL:
-//   voice   = slot korban
-//   sample  = sample BARU yang mengambil slot
-//   velocity= velocity BARU
-//   hitNo   = sample index KORBAN (yang terpotong)
-//   aux     = lifetime korban (us, sejak startVoice)
-//   aux2    = expected duration sample korban (us)
-//   reason  = DBG_CLOSE_STOLEN (penanda)
-//   detail remaining/total bytes -> ring DbgStealAudit
+// Field packing event CLOSE: sample=sample index, aux=actual lifetime (us),
+// aux2=expected duration (us). Event STEAL: voice=slot korban,
+// sample/velocity=yang BARU, hitNo=sample korban (terpotong), aux=lifetime
+// korban (us, sejak startVoice), aux2=expected duration korban,
+// reason=DBG_CLOSE_STOLEN, detail byte -> ring DbgStealAudit.
 
 struct DbgEvent
 {
@@ -391,8 +370,6 @@ struct DbgEvent
     uint8_t reason;
 };
 
-// Detail satu kejadian steal (untuk STEAL AUDIT)
-
 struct DbgStealAudit
 {
     uint32_t ts;
@@ -405,10 +382,10 @@ struct DbgStealAudit
     uint8_t victimSample;        // sample index korban
 };
 
-// Audit prefetch failure: state saat prefetch tidak menambah byte.
+// Audit prefetch failure (state saat prefetch tidak menambah byte).
 // Klasifikasi dari state existing (tanpa perubahan perilaku):
-//   1 = inactive, 2 = drained-await-close (target==0 && remaining==0),
-//   3 = zero-target, 4 = already-full (bytes >= target)
+//   1=inactive, 2=drained-await-close (target==0 && remaining==0),
+//   3=zero-target, 4=already-full (bytes>=target)
 
 struct DbgFailAudit
 {
@@ -447,8 +424,6 @@ uint8_t dbgMaxSimultaneous = 0;
 
 uint32_t voiceStartMicros[VOICE_COUNT] = {0};
 
-// Durasi teoretis sample yang sedang dimainkan tiap voice
-
 uint32_t voiceExpectedDurUs[VOICE_COUNT] = {0};
 
 uint32_t dbgLifeMinUs[VOICE_COUNT] = {0};
@@ -456,13 +431,12 @@ uint32_t dbgLifeMaxUs[VOICE_COUNT] = {0};
 uint64_t dbgLifeTotalUs[VOICE_COUNT] = {0};
 uint32_t dbgLifeCount[VOICE_COUNT] = {0};
 
-// ---- Statistik PER SAMPLE (index = pad/sample index) ----
+// ---- Statistik PER SAMPLE (index = slot PSRAM) ----
 
 // G21: indeks dbg* di bawah adalah SLOT PSRAM (0..PSRAM_MAX_SAMPLES-1),
-// bukan index pad. Slot >= PSRAM_KIT_SLOT_COUNT dipakai runtime
-// PAD -> SOUND, jadi tabel debug harus mengikuti domain slot yang
-// sama dengan startVoice() — kalau tidak, voice pada slot tambahan
-// akan menulis di luar tabel saat PROFILE_2VOICE_DEBUG aktif.
+// bukan index pad. Slot >= PSRAM_KIT_SLOT_COUNT dipakai runtime PAD->SOUND,
+// jadi tabel debug harus mengikuti domain slot yang sama dengan startVoice()
+// — kalau tidak, voice pada slot tambahan menulis di luar tabel.
 
 uint32_t dbgSmpStarts[PSRAM_MAX_SAMPLES] = {0};
 uint32_t dbgSmpNatural[PSRAM_MAX_SAMPLES] = {0};
@@ -484,15 +458,13 @@ uint32_t dbgSmpRemCount[PSRAM_MAX_SAMPLES] = {0};
 
 // ---- Close reason breakdown ----
 //
-// zero/exhausted dihitung dalam "exhaustedClose"
-// (sisa sample < FRAME_SIZE = sample habis).
+// zero/exhausted dihitung dalam "exhaustedClose" (sisa < FRAME_SIZE = habis).
 
 uint32_t dbgNaturalClose = 0;
 uint32_t dbgStolenClose = 0;
 uint32_t dbgExhaustedClose = 0;
 
-// Korban steal yang benar-benar masih punya data
-// belum dimainkan (rem+buffer > 0)
+// Korban steal yang masih punya data belum dimainkan (rem+buffer > 0)
 
 uint32_t dbgStolenBeforeEnd = 0;
 
@@ -501,11 +473,10 @@ uint32_t dbgStolenBeforeEnd = 0;
 
 uint32_t dbgActiveDist[VOICE_COUNT + 1] = {0};
 
-// ACTIVE_WITH_ZERO_REMAINING: voice aktif dengan
-// voiceRemaining == 0. Dicatat saat snapshot.
-// Catatan: ada window legit (tail terakhir sudah dipindah
-// ke voiceBuffer tapi belum dimix/belum ter-close) —
-// varian strict (buffer juga kosong) ikut dihitung.
+// ACTIVE_WITH_ZERO_REMAINING: voice aktif dengan voiceRemaining == 0
+// (dicatat saat snapshot). Catatan: ada window legit (tail terakhir sudah
+// di voiceBuffer tapi belum dimix/ter-close) — varian strict (buffer juga
+// kosong) ikut dihitung.
 
 uint32_t dbgZeroRemainActive = 0;
 uint32_t dbgZeroRemainActiveStrict = 0;
@@ -522,8 +493,6 @@ uint32_t dbgHitIntCount = 0;
 
 uint32_t dbgExpDurMinUs = UINT32_MAX;
 uint32_t dbgExpDurMaxUs = 0;
-
-// Durasi teoretis sample (us) dari metadata SampleInfo existing
 
 uint32_t dbgSampleExpectedDurUs(uint8_t sampleIndex)
 {
@@ -704,8 +673,7 @@ void dbgTakeSnapshot()
     dbgSnap.hitIntCount = dbgHitIntCount;
     dbgSnap.failAuditTotal = dbgFailAuditTotal;
 
-    // Range durasi sample valid (dihitung ulang tiap
-    // snapshot dari metadata existing — murah, 12 slot)
+    // Range durasi sample valid (dihitung ulang tiap snapshot — murah, 12 slot)
 
     dbgExpDurMinUs = UINT32_MAX;
     dbgExpDurMaxUs = 0;
@@ -1069,9 +1037,8 @@ uint32_t dbgPreStartUs[VOICE_COUNT];
 uint32_t dbgPrefillUs[VOICE_COUNT];
 bool dbgPrefilled[VOICE_COUNT];
 
-// Observational-only producer-ahead tracker
-// (identik dengan pacing watermark yang di-rollback,
-//  TAPI tidak pernah meng-gate produksi apa pun)
+// Observational-only producer-ahead tracker (identik pacing watermark
+// yang di-rollback, TAPI tidak pernah meng-gate produksi apa pun)
 
 uint32_t dbgObsAheadBytes = 0;
 uint32_t dbgObsRefUs = 0;
@@ -1533,10 +1500,9 @@ bool prefetchVoice(uint8_t voiceIndex)
     {
         dbgPrefetchFailCount[voiceIndex]++;
 
-        // Klasifikasi state SAAT gagal, dari state
-        // existing saja (tanpa fallback/perilaku baru):
-        //   1 inactive | 2 drained-await-close
-        //   3 zero-target | 4 already-full
+        // Klasifikasi state SAAT gagal dari state existing (tanpa perubahan
+        // perilaku): 1=inactive | 2=drained-await-close | 3=zero-target |
+        // 4=already-full
 
         uint8_t failReason = 0;
 
@@ -1625,9 +1591,8 @@ void startVoice(
         {
             dbgStealCount++;
 
-            // Data korban SEBELUM slot ditutup.
-            // remainingBytesAtSteal = unread PSRAM +
-            // data yang sudah di-prefetch tapi belum dimix.
+            // Data korban SEBELUM slot ditutup: remaining = unread PSRAM +
+            // data prefetch yang belum dimix.
 
             const uint8_t victimSmp =
                 voiceSampleIndex[voiceIndex];
@@ -1677,9 +1642,8 @@ void startVoice(
                           DBG_STEAL_AUDIT_MAX);
             dbgStealAuditTotal++;
 
-            // Event STEAL: log SEBELUM korban di-close
-            // supaya activeMask masih menampilkan slot
-            // korban sebagai aktif.
+            // Log STEAL SEBELUM korban di-close supaya activeMask masih
+            // menampilkan slot korban sebagai aktif.
 
             dbgLogEvent(
                 DBG_EVT_STEAL,
@@ -1796,8 +1760,8 @@ void fireHit(uint8_t padIndex, uint8_t velocity)
 
     if (!foundIdle)
     {
-        // Steal weakest voice (lowest velocity), not oldest.
-        // Ghost notes less noticeable when cut off than loud accents.
+        // Steal voice terlemah (velocity terendah), bukan yang tertua.
+        // Ghost note yang terpotong kurang terdengar dibanding aksen keras.
         uint8_t weakestVelocity = 255;
 
         for (uint8_t v = 0; v < VOICE_COUNT; v++)
@@ -1875,23 +1839,17 @@ void fireHit(uint8_t padIndex, uint8_t velocity)
     }
 
     // ---------------------------------------------------
-    // Resolusi sample: padIndex → PSRAM slot via registry.
-    // O(1), memory-only. Dibangun oleh kit loader di
-    // control plane (saat kit commit) DAN di-update oleh
-    // PAD -> SOUND (psramSetPadSlot). AudioTask hanya
-    // membaca tabel ini — tidak ada SD/malloc/String.
-    // Nilai slot boleh 0..PSRAM_MAX_SAMPLES-1 (slot runtime
-    // milik file yang baru dimuat) atau PSRAM_SLOT_NONE
-    // (pad di-UNASSIGN). startVoice() menolak keduanya di
-    // luar range dengan bail senyap, jadi:
-    //   - kit belum dimuat / source slot invalid -> fallback
-    //     identitas (backward-compat), psramGetData()
-    //     nullptr -> startVoice bails aman;
-    //   - pad UNASSIGN -> senyap tanpa menyentuh data
-    //     sample pad lain.
-    // Remap runtime = satu store uint8 (atomic) dari
-    // control plane, jadi hit bersamaan memakai slot lama
-    // atau baru — keduanya valid & PCM-nya sudah termuat.
+    // Resolusi sample: padIndex → PSRAM slot via registry (O(1),
+    // memory-only). Dibangun kit loader di control plane (saat kit commit)
+    // dan di-update PAD->SOUND (psramSetPadSlot). AudioTask hanya membaca
+    // — tanpa SD/malloc/String. Slot valid 0..PSRAM_MAX_SAMPLES-1 atau
+    // PSRAM_SLOT_NONE (UNASSIGN). startVoice() bail senyap di luar range:
+    //   - kit belum dimuat / source slot invalid -> fallback identitas
+    //     (backward-compat), psramGetData()=nullptr -> bail aman;
+    //   - pad UNASSIGN -> senyap tanpa menyentuh sample pad lain.
+    // Remap runtime = satu store uint8 (atomic) dari control plane —
+    // hit bersamaan pakai slot lama atau baru, keduanya valid & PCM
+    // sudah termuat.
     // ---------------------------------------------------
 
     const uint8_t psramSlot = psramSlotForPad(padIndex);
@@ -1909,13 +1867,9 @@ void fireHit(uint8_t padIndex, uint8_t velocity)
     // PHASE 2: FreeRTOS AudioTask + SPSC hit ring
     // ======================================================
     //
-    // Transport trigger -> audio. Producer = loopTask
-    // (trigger), consumer = AudioTask. AudioTask adalah
-    // owner tunggal seluruh voice state; fireHit() hanya
-    // dipanggil dari sini.
-    //
-    // Overflow ring: DROP NEWEST + counter, tidak pernah
-    // blocking di producer maupun consumer.
+    // Transport trigger->audio: producer=loopTask (trigger), consumer=AudioTask.
+    // AudioTask owner tunggal seluruh voice state; fireHit() hanya dari sini.
+    // Overflow ring: DROP NEWEST + counter, tidak pernah blocking.
 
     struct AudioHitEvent
     {
@@ -1931,15 +1885,13 @@ void fireHit(uint8_t padIndex, uint8_t velocity)
 
     constexpr uint32_t AUDIO_TASK_STACK_SIZE = 4096;
 
-    // Phase 1 hotfix: priority 24 (FreeRTOS max di environment
-    // ini adalah <25, jadi 24 adalah tertinggi yang valid).
-    // Core 0. TriggerTask kini di Core 1 (tidak lagi bersaing).
+    // Phase 1 hotfix: priority 24 (maks FreeRTOS <25 di env ini).
+    // Core 0; TriggerTask kini di Core 1 (tidak lagi bersaing).
 
     constexpr UBaseType_t AUDIO_TASK_PRIORITY = 24;
 
-    // Park maksimal 1 tick per iterasi: fail-safe jika
-    // notification hilang/terlambat — flush pendingBytes,
-    // pacing gate, prefetch, mix tetap berjalan.
+    // Park maks 1 tick/iterasi: fail-safe jika notification hilang/terlambat
+    // (flush pendingBytes, pacing gate, prefetch, mix tetap berjalan).
 
     constexpr TickType_t AUDIO_TASK_PARK_TICKS = 1;
 
@@ -1948,11 +1900,10 @@ void fireHit(uint8_t padIndex, uint8_t velocity)
     volatile uint8_t audioHitTail = 0;
     volatile uint32_t audioHitOverflowCount = 0;
 
-    // Hit acceptance gate (kit-switch support). Ditulis oleh
-    // UART task (Core 1, control plane), dibaca oleh producer
-    // TriggerTask (Core 1) dan consumer AudioTask (Core 0).
-    // Selalu diakses via __atomic_* (satu byte, lock-free,
-    // tanpa mutex/blocking di realtime path).
+    // Hit acceptance gate (kit-switch support). Ditulis UART task (Core 1,
+    // control plane), dibaca producer TriggerTask (Core 1) dan consumer
+    // AudioTask (Core 0). Selalu via __atomic_* (lock-free, tanpa
+    // mutex/blocking di realtime path).
     bool audioHitAccept = true;
 
     inline bool audioHitAcceptNow()
@@ -1963,10 +1914,9 @@ void fireHit(uint8_t padIndex, uint8_t velocity)
 
     TaskHandle_t audioTaskHandle = nullptr;
 
-    // Core tempat I2S driver dibuat = core tempat setup()/
-    // loop() berjalan. I2S/DMA berjalan di ISR secara
-    // independen dari core task, sehingga AudioTask aman
-    // di-pin ke Core 0 meskipun driver di-init di Core 1.
+    // Core tempat I2S driver dibuat = core setup()/loop(). I2S/DMA berjalan
+    // di ISR independen dari core task, jadi AudioTask aman di-pin Core 0
+    // meski driver di-init di Core 1.
 
     int audioI2SCore = -1;
 
@@ -2037,15 +1987,13 @@ void fireHit(uint8_t padIndex, uint8_t velocity)
     {
         AudioHitEvent ev;
 
-        // Baca gate sekali per burst drain. Nol biaya saat tidak
-        // ada hit (while tidak pernah masuk).
+        // Baca gate sekali per burst drain (nol biaya saat tidak ada hit).
         const bool accept = audioHitAcceptNow();
 
         while (audioHitPop(&ev))
         {
-            // Kit switch pending: buang hit yang masih tersisa di
-            // ring TANPA membuat voice. Voice yang sudah aktif
-            // tetap berjalan normal (tidak dipotong/dibunuh).
+            // Kit switch pending: buang hit tersisa di ring TANPA membuat
+            // voice. Voice aktif tetap berjalan normal (tidak dipotong).
             if (!accept)
             {
                 continue;
@@ -2064,9 +2012,8 @@ void fireHit(uint8_t padIndex, uint8_t velocity)
 
             audioTaskDrainHits();
 
-            // 2. Engine pass existing apa adanya:
-            //    flush pending -> pacing gate -> prefetch ->
-            //    allReady -> mix -> set pending
+            // 2. Engine pass apa adanya: flush pending -> pacing gate ->
+            //    prefetch -> allReady -> mix -> set pending
 
             audioTask();
 
@@ -2095,9 +2042,8 @@ void audioInit()
 
     i2s.setPins(PIN_BCLK, PIN_LRCK, PIN_DOUT);
 
-    // Catat core yang mengeksekusi init ini = core tempat
-    // I2S driver dibuat. AudioTask akan dipin ke core
-    // yang sama (runtime-determined, bukan asumsi).
+    // Catat core eksekusi init = core tempat I2S driver dibuat. AudioTask
+    // dipin ke core yang sama (runtime-determined, bukan asumsi).
 
     audioI2SCore = (int)xPortGetCoreID();
 
@@ -2179,11 +2125,9 @@ uint32_t audioActiveVoiceMaxRemainingUs()
             continue;
         }
 
-        // Sisa PCM yang belum diputar, dalam byte setara
-        // STEREO 16-bit (unit yang dikonsumsi mixer):
-        //   stereo : voiceRemaining sudah byte stereo
-        //   mono   : voiceRemaining byte mono x2
-        // voiceBufferBytes sudah selalu byte stereo.
+        // Sisa PCM belum diputar, dalam byte setara STEREO 16-bit (unit
+        // mixer): stereo -> voiceRemaining sudah byte stereo; mono ->
+        // voiceRemaining byte mono x2. voiceBufferBytes selalu byte stereo.
         uint32_t remainingBytes = voiceBufferBytes[v];
 
         if (voiceChannels[v] == 2)
@@ -2222,17 +2166,15 @@ void audioTrigger(
     uint8_t velocity
 )
 {
-    // Phase 2: producer side. Push event ke SPSC ring,
-    // wake AudioTask via notification (hint — tidak
-    // kritis; task tetap berjalan dengan park 1 tick).
+    // Producer side: push event ke SPSC ring, wake AudioTask via
+    // notification (hint — tidak kritis; task tetap jalan dengan park 1 tick).
 
 #if DEBUG_PLAYABILITY
     pbTriggerHits++;
 #endif
 
-    // Kit switch pending: buang hit baru (tidak di-enqueue).
-    // Sisa hit yang sudah masuk ring di-handle consumer
-    // (audioTaskDrainHits). Pengecekan 1 atomic load, tanpa
+    // Kit switch pending: buang hit baru (tidak di-enqueue). Sisa di ring
+    // di-handle consumer (audioTaskDrainHits). 1 atomic load, tanpa
     // mutex/blocking — timing audio lain tidak berubah.
     if (!audioHitAcceptNow())
     {
@@ -2306,7 +2248,7 @@ void audioTask()
         }
     }
 
-    // 1. Write pending I2S data
+    // 1. Tulis pending data I2S
 
     if (pendingBytes != 0)
     {
@@ -2491,13 +2433,11 @@ void audioTask()
 
     // 4. Mix voice yang SUDAH ready saja.
     //
-    // Sebelumnya: gate "allReady" menghentikan SELURUH mixer
-    // jika SATU voice belum penuh buffernya — satu voice yang
-    // terlambat bisa membuat kick+snare+hat lain berhenti
-    // (dropout/glitch saat multi-pad). Sekarang voice yang
-    // belum siap diskip (buffernya dipertahankan, di-prefetch
-    // + dimix pada pass berikutnya) tanpa menghentikan voice
-    // lain yang sudah siap.
+    // Dulu gate "allReady" menghentikan SELURUH mixer jika SATU voice belum
+    // penuh buffernya — satu voice telat membuat voice lain berhenti
+    // (dropout/glitch saat multi-pad). Sekarang voice yang belum siap
+    // diskip (buffer dipertahankan, di-prefetch+mix pass berikutnya) tanpa
+    // menghentikan voice lain yang sudah siap.
 
     // 5. MIX (integer fixed-point)
 
@@ -2514,9 +2454,8 @@ void audioTask()
         if (!voiceActive[v])
             continue;
 
-        // Hanya mix voice yang buffernya sudah penuh target.
-        // Voice yang belum siap diskip; buffernya tidak
-        // di-clear, jadi tetap dipakai pass berikutnya.
+        // Mix hanya voice yang buffernya sudah penuh target. Yang belum siap
+        // diskip; buffer tidak di-clear, jadi dipakai pass berikutnya.
         if (voiceBufferBytes[v] <
             voiceBufferTarget[v])
         {
@@ -2592,11 +2531,10 @@ void audioTask()
         return;
     }
 
-    // Clamp dengan headroom -6 dB (MIX_HEADROOM_SHIFT = 1):
-    // hasil sum dibagi 2 sebelum clamp. Tanpa ini, beberapa
-    // voice full-scale yang bersamaan (mis. kick+snare+hat)
-    // melebihi int16 dan di-hard-clip, merusak keseimbangan —
-    // suara lain kedengaran hilang/terlalu quiet.
+    // Clamp dengan headroom -6dB (shift=1): sum dibagi 2 sebelum clamp.
+    // Tanpa ini, beberapa voice full-scale bersamaan (kick+snare+hat)
+    // melebihi int16 dan hard-clip, merusak keseimbangan — suara lain
+    // kedengaran hilang.
     constexpr int MIX_HEADROOM_SHIFT = 1;
 
     int16_t *out =
@@ -2651,7 +2589,7 @@ void audioTask()
         dbgMixTotal++;
     }
 
-    // 6. Set pending for next I2S write
+    // 6. Set pending untuk I2S write berikutnya
 
     pendingBytes = mixSize;
     pendingOffset = 0;
@@ -2737,7 +2675,7 @@ void audioEndToEndProfileReport()
     }
 
     // ----------------------------------------------
-    // Aggregate end-to-end stats
+    // Agregasi statistik end-to-end
     // ----------------------------------------------
 
     TimingStats aggTTV, aggVTP, aggPTI, aggTotal;
@@ -2842,7 +2780,7 @@ void audioEndToEndProfileReport()
     );
 
     // ----------------------------------------------
-    // Mix per voice count
+    // Mix per jumlah voice
     // ----------------------------------------------
 
     Serial0.println("=== MIX PROFILE ===");
@@ -2876,7 +2814,7 @@ void audioEndToEndProfileReport()
     Serial0.println("====================");
 
     // ----------------------------------------------
-    // PSRAM read (existing, preserved)
+    // PSRAM read (dipertahankan dari sebelumnya)
     // ----------------------------------------------
 
     Serial0.println("=== PSRAM READ PROFILE ===");
@@ -2912,7 +2850,7 @@ void audioEndToEndProfileReport()
     Serial0.println("===========================");
 
     // ----------------------------------------------
-    // I2S write (existing, preserved)
+    // I2S write (dipertahankan dari sebelumnya)
     // ----------------------------------------------
 
     Serial0.println("=== I2S WRITE PROFILE ===");
@@ -2952,9 +2890,8 @@ void audioEndToEndProfileReport()
 // 2-VOICE DEBUG DUMP
 // ======================================================
 //
-// Snapshot counter+event ring tiap 5 detik, lalu
-// print SATU BARIS per panggilan (chunked) supaya
-// UART tidak memblokir superloop terlalu lama.
+// Snapshot counter+event ring tiap 5 detik, print SATU BARIS per panggilan
+// (chunked) supaya UART tidak memblokir superloop terlalu lama.
 
 void audioTwoVoiceDebugTask()
 {
@@ -2963,8 +2900,7 @@ void audioTwoVoiceDebugTask()
         return;
     }
 
-    // Active voice count distribution:
-    // di-sample sekali per loop pass.
+    // Distribusi active voice count: di-sample sekali per loop pass.
 
     if (cachedActiveVoiceCount <= VOICE_COUNT)
     {
@@ -2995,7 +2931,7 @@ void audioTwoVoiceDebugTask()
         lifeHeaderLine + 1 + VOICE_COUNT + 1;
     const uint16_t hitIntLine = distLabelLine + 1 + VOICE_COUNT + 1;
 
-    // Section audit sample duration vs lifetime
+    // Seksi audit: durasi sample vs lifetime
 
     const uint16_t sdaHdrLine = hitIntLine + 1;
     const uint16_t vlsHdrLine =
@@ -3520,10 +3456,9 @@ void audioTaskStart()
         return;
     }
 
-    // Phase 1: pin ke Core 0 (core real-time audio/trigger)
-    // dengan priority 25 (tertinggi). I2S/DMA berjalan di
-    // ISR secara independen dari core task, sehingga aman
-    // walau driver di-init di Core 1 (setup).
+    // Phase 1: pin ke Core 0 (core real-time audio/trigger) dengan priority
+    // 25 (tertinggi). I2S/DMA jalan di ISR independen dari core task, jadi
+    // aman walau driver di-init di Core 1 (setup).
 
     const BaseType_t core = 0;
 

@@ -9,18 +9,18 @@
 // sebelum menentukan threshold atau velocity curve.
 //
 // Cara pakai:
-//   1. Set DEBUG_ADC_CALIBRATION = true di config.h
+//   1. Set #define DEBUG_ADC_CALIBRATION 1 di config.h
 //   2. Build & flash ESP32
 //   3. Buka Serial Monitor 115200 baud
-//   4. Diamkan pad → baseline otomatis terkumpul & dicetak
-//   5. Pukul pad mana saja → [HIT] dan [CROSSTALK] muncul
-//      otomatis, tidak perlu mengetik command apa pun
+//   4. Pukul pad → satu baris per pukulan, contoh:
+//        HIT p03 pk420 : 12 25 420 38 15 20 18 22 19 31 28 24
+//      12 angka = peak PAD01..PAD12 berurutan: peak source +
+//      bocoran (crosstalk) ke semua pad lain langsung terbaca.
+//   5. Copy barisnya untuk dihitung threshold/sensitivity.
 //
-// DATA yang dikumpulkan (observer-only, non-realtime):
-//   - Baseline idle: min, avg, max, range per pad
-//   - Hit peak: setiap pukulan langsung dicetak
-//   - Crosstalk: leak ke 11 pad lain per event
-//
+// DATA: hanya angka mentah ADC (observer-only, non-realtime).
+// Tidak ada auto-tuning, tidak mengubah parameter apapun.
+
 // Arsitektur:
 //   - Dipanggil dari loop() (Core 1, non-realtime)
 //   - Membaca readPadADC() — existing, non-blocking
@@ -28,8 +28,10 @@
 //   - Storage: static arrays, zero heap
 //
 // Compile-time ON/OFF via config.h:
-//   constexpr bool DEBUG_ADC_CALIBRATION = true/false
-//   false → seluruh kode compile-out, zero overhead
+//   #define DEBUG_ADC_CALIBRATION 1  → aktif (fase tuning)
+//   #define DEBUG_ADC_CALIBRATION 0  → seluruh kode compile-out,
+//                                     zero overhead
+// Kembalikan ke 0 setelah tuning selesai.
 //
 // PAD numbering: PAD01..PAD12 = index 0..11
 // GPIO: dari PAD_PINS[i] di config.h (single source)
@@ -47,7 +49,7 @@
 
 struct PadCalData
 {
-    // Baseline (idle noise)
+    // Baseline (idle noise) — dicadangkan untuk mode baseline
     uint16_t idleMin;
     uint16_t idleMax;
     uint32_t idleSum;
@@ -58,10 +60,11 @@ struct PadCalData
     uint16_t peakLast;    // peak of most recent hit
 
     // Crosstalk: max leak received from other pads' hits
+    // (dicadangkan untuk mode crosstalk)
     uint16_t xtalkMax;
 
     // Timing
-    uint32_t lastEventUs;
+    uint32_t lastEventUs; // micros() of last hit (cooldown)
 };
 
 // ======================================================
@@ -72,8 +75,8 @@ struct PadCalData
 // Call from setup() after hardwareInit().
 void adcCalibrationInit();
 
-// Auto-capture task: baseline collection, hit detection,
-// crosstalk measurement. Call from loop() every iteration.
+// Auto-capture task: hit detection + one-line peak report
+// per hit. Call from loop() every iteration.
 void adcCalibrationTask();
 
 #endif // DEBUG_ADC_CALIBRATION

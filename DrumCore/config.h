@@ -43,10 +43,10 @@ constexpr uint8_t PAD_COUNT = 12;
 
 constexpr uint8_t PAD_PINS[PAD_COUNT] =
 {
-    4, 5, 6, 7,
-    15, 16, 17,
-    8, 9, 10,
-    11, 12
+    4, 5, 6,      // PAD01-03 : kecil
+    17, 8, 9,     // PAD04-06 : besar
+    10, 11, 12,   // PAD07-09 : besar
+    7, 15, 16     // PAD10-12 : kecil
 };
 
 // ======================================================
@@ -103,33 +103,26 @@ constexpr const char* PAD_SAMPLE_PATHS[PAD_COUNT] =
 // 12 samples × ~256KB = ~3MB. Sisa untuk kit cache.
 //
 // G21 — Domain slot sample.
-//
-//   slot 0 .. PSRAM_KIT_SLOT_COUNT-1  : dipakai KIT LOAD. Slot == index
-//       pad saat kit dimuat (identitas, backward-compat).
-//
+//   slot 0 .. PSRAM_KIT_SLOT_COUNT-1 : dipakai KIT LOAD (slot == index
+//       pad saat kit dimuat; identitas, backward-compat).
 //   slot PSRAM_KIT_SLOT_COUNT .. PSRAM_MAX_SAMPLES-1 : slot RUNTIME
 //       untuk file yang BELUM ada di PSRAM (PAD -> SOUND memilih file
-//       baru). Tiap slot punya alokasi PSRAM sendiri, jadi menambah
-//       sample runtime tidak perlu me-rebase pointer sample kit dan
-//       tidak perlu free buffer yang sedang dibaca voice.
-//
-// Audio realtime TIDAK berubah bentuk: psramSlotForPad() tetap
-// fixed array uint8, O(1), tanpa SD/malloc/String. Yang berubah hanya
-// NILAI slot yang boleh dipakai (0..PSRAM_MAX_SAMPLES-1).
+//       baru). Tiap slot punya alokasi PSRAM sendiri — menambah sample
+//       runtime tidak perlu me-rebase pointer sample kit / free buffer
+//       yang sedang dibaca voice.
+// Audio realtime TIDAK berubah bentuk: psramSlotForPad() tetap fixed
+// array uint8, O(1), tanpa SD/malloc/String; yang berubah hanya NILAI
+// slot yang boleh dipakai (0..PSRAM_MAX_SAMPLES-1).
 //
 // G25 — Kepemilikan blok PCM.
-//
 //   Dahulu PCM 12 slot kit berada di SATU blok ps_malloc(total kit)
-//   ~5.5 MB; slotOwnBuf[] hanya untuk slot runtime. Satu KIT LOAD
-//   jadi butuh satu blok kontigu sebesar seluruh kit, dan free-list
-//   yang terpecah (free total cukup, largest < requested) gagal.
-//
+//   ~5.5 MB; slotOwnBuf[] hanya untuk slot runtime. Satu KIT LOAD butuh
+//   satu blok kontigu sebesar seluruh kit — free-list yang terpecah
+//   (free total cukup, largest < requested) gagal.
 //   Sekarang SETIAP slot yang punya PCM punya blok sendiri di
-//   slotOwnBuf[] — kit maupun runtime. Total kit tidak lagi harus
-//   muat dalam satu blok, hanya free TOTAL yang perlu cukup.
-//   Konsekuensi ke audio: nol (psramGetData/size sudah per-slot);
-//   audio.cpp, mixer, I2S/DMA, voice allocator, trigger, velocity,
-//   priority, dan GPIO tidak berubah.
+//   slotOwnBuf[] (kit maupun runtime). Total kit tidak harus muat dalam
+//   satu blok; hanya free TOTAL yang perlu cukup. Konsekuensi ke audio:
+//   nol (psramGetData/size sudah per-slot).
 constexpr uint8_t PSRAM_KIT_SLOT_COUNT = PAD_COUNT;      // 12 slot kit
 constexpr uint8_t PSRAM_EXTRA_SLOT_COUNT = 4;             // slot runtime
 constexpr size_t PSRAM_MAX_SAMPLES =
@@ -137,9 +130,9 @@ constexpr size_t PSRAM_MAX_SAMPLES =
 constexpr size_t PSRAM_MAX_SAMPLE_SIZE = 4 * 1024 * 1024; // 4MB max per sample
 constexpr size_t PSRAM_KIT_SLOTS = 2;  // 2 kit di-cache
 
-// Sentinel "tidak ada slot" untuk mapping pad -> slot. Dipakai saat
-// pad di-UNASSIGN (senyap). startVoice() menolaknya lewat bound
-// check sehingga pad membisu tanpa menyentuh data sample lain.
+// Sentinel "tidak ada slot" untuk mapping pad -> slot (pad di-UNASSIGN
+// = senyap). startVoice() menolaknya lewat bound check sehingga pad
+// membisu tanpa menyentuh data sample lain.
 constexpr uint8_t PSRAM_SLOT_NONE = 0xFF;
 
 // ======================================================
@@ -165,12 +158,11 @@ constexpr uint8_t HIHAT_CLOSED_NOTE = 42;
 //   - Kick:      30ms (=30000us) — hindari double trigger
 //   - Cymbal:    17ms (=17000us)
 //
-// Phase 3C: nilai konservatif awal (ms) yang setara dengan
-// target mikrosecond: KICK=30000us, SNARE/TOM=15000us,
-// CYMBAL=17000us. Disimpan dalam ms karena adjustMaskTime()
-// dan state machine memakai satuan ms (runtime x1000 -> us).
-// Penyetelan ulang cukup di tabel ini; trigger engine tidak
-// diubah.
+// Phase 3C: nilai konservatif awal (ms), setara KICK=30000us,
+// SNARE/TOM=15000us, CYMBAL=17000us. Disimpan dalam ms karena
+// adjustMaskTime() dan state machine memakai satuan ms (runtime
+// x1000 -> us). Penyetelan ulang cukup di tabel ini; trigger engine
+// tidak diubah.
 
 constexpr uint32_t PAD_MASK_MS[PAD_COUNT] =
 {
@@ -192,8 +184,8 @@ constexpr uint32_t PAD_MASK_MS[PAD_COUNT] =
 // Pad Field Bounds (SINGLE SOURCE OF TRUTH — G8-A)
 // ======================================================
 //
-// Satu-satunya sumber kebenaran untuk batas nilai field PadConfig
-// (CMD_PAD_SET / CMD_PAD_GET). Dipakai oleh lapisan control plane
+// Satu-satunya sumber kebenaran batas nilai field PadConfig
+// (CMD_PAD_SET / CMD_PAD_GET). Dipakai control plane
 // (uart_protocol.cpp), persistence (NVS), kit_loader (JSON SD), dan
 // kit_manager (CREATE source). JANGAN hardcode angka batas di file
 // lain — kalau batas berubah, ubah hanya di sini.
@@ -203,11 +195,10 @@ constexpr uint32_t PAD_MASK_MS[PAD_COUNT] =
 // salinan protokol, bukan salinan batas).
 //
 // CATATAN TRANSPORT: frame UART membawa nilai 16-bit (PAD_GET dikirim
-// dua frame lo/hi). Batas otoritatif di bawah ini adalah batas NILAI
-// per field; lapisan UART hanya membatasi maksimumnya ke 0xFFFF
-// (keterbatasan frame, bukan duplikasi batas). releaseStableTime
-// (uint32 di PadConfig) otoritatif sampai 100000, tapi lewat UART
-// hanya sampai 65535.
+// dua frame lo/hi). Batas di bawah ini adalah batas NILAI per field;
+// lapisan UART hanya me-clamp maksimumnya ke 0xFFFF (keterbatasan
+// frame, bukan duplikasi batas). releaseStableTime (uint32) otoritatif
+// sampai 100000, tapi lewat UART hanya sampai 65535.
 
 constexpr uint8_t FIELD_MIDI_NOTE        = 0;
 constexpr uint8_t FIELD_THRESHOLD        = 1;
@@ -227,7 +218,7 @@ constexpr uint8_t FIELD_COUNT            = 11;
 constexpr uint32_t PAD_FIELD_MIN[FIELD_COUNT] =
 {
     0,      // FIELD_MIDI_NOTE
-    100,    // FIELD_THRESHOLD
+    10,     // FIELD_THRESHOLD
     50,     // FIELD_RELEASE_THRESH
     200,    // FIELD_PEAK_TIME
     1000,   // FIELD_RELEASE_STABLE
@@ -279,27 +270,26 @@ constexpr uint8_t UART_MAX_KIT = 4;   // kit 0..4 (5 kits)
 // Kit Management (TASK 3 — control plane)
 // ======================================================
 //
-// 5 slot kit (0..4). Kit 0 adalah kit factory default dan
-// dilindungi dari DELETE (juga menjadi tujuan fallback saat
-// active kit di-delete). CREATE hanya boleh menulis slot 1..4.
+// 5 slot kit (0..4). Kit 0 = factory default, dilindungi dari DELETE
+// (juga tujuan fallback saat active kit di-delete). CREATE hanya
+// boleh menulis slot 1..4.
 
 constexpr uint8_t KIT_COUNT         = UART_MAX_KIT + 1; // 5
 constexpr uint8_t KIT_FACTORY_INDEX = 0;                // protected
-constexpr uint8_t KIT_NAME_MAX      = 28;               // max name length
-constexpr uint8_t KIT_NAME_STORAGE  = 32;               // NUL-terminated buffer
+constexpr uint8_t KIT_NAME_MAX      = 28;               // panjang nama maks
+constexpr uint8_t KIT_NAME_STORAGE  = 32;               // buffer NUL-terminated
 
 // Nama file sample per pad (field "sample" di kit.json & protokol
-// PAD_SOUND_SET). Cap identik dengan aturan isValidSampleName
-// (kit_loader): maks SAMPLE_NAME_MAX char. Storage +1 utk NUL.
+// PAD_SOUND_SET). Cap identik aturan isValidSampleName (kit_loader):
+// maks SAMPLE_NAME_MAX char, storage +1 utk NUL.
 constexpr uint8_t SAMPLE_NAME_MAX    = 32;
 constexpr uint8_t SAMPLE_NAME_STORAGE = 33;
 
-// Path buffers untuk kit name-based (G2): folder kit MENGIKUTI
-// nama kit (maks KIT_NAME_MAX char), jadi semua path berbasis
-// index lama tidak lagi muat. Nilai dihitung dari:
-//   dir   = "/kits/" (6) + KIT_NAME_MAX (28) + NUL = 35 <= 40
-//   json  = dir (39)   + "/kit.json" (9)          + NUL = 49 <= 56
-//   smpl  = dir (39)   + "/samples/" (9) + nama sample (32) + NUL
+// Path buffers untuk kit name-based (G2): folder kit MENGIKUTI nama
+// kit (maks KIT_NAME_MAX char). Ukuran dihitung dari:
+//   dir  = "/kits/" (6) + KIT_NAME_MAX (28) + NUL = 35 <= 40
+//   json = dir (39) + "/kit.json" (9) + NUL = 49 <= 56
+//   smpl = dir (39) + "/samples/" (9) + nama sample (32) + NUL
 constexpr uint8_t KIT_DIR_LEN           = 40;
 constexpr uint8_t KIT_PATH_LEN          = 56;
 constexpr uint8_t KIT_SAMPLE_PATH_LEN   = 96;
@@ -313,10 +303,10 @@ constexpr bool DEBUG_TRIGGER = false;
 
 // UART control plane debug (RX frames / command log). Default
 // OFF — release tidak spam Serial saat drum dimainkan.
-// Nyalakan ulang ke `true` hanya saat development/debug build.
+// Nyalakan ke `true` hanya saat development/debug build.
 constexpr bool DEBUG_UART    = false;
-// ADC Calibration/Debug mode - instrumentation only, non-intrusive
-// Set to 1 to enable auto-capture tool, 0 to compile-out entirely.
+// Mode instrumentasi ADC Calibration/Debug — non-intrusif.
+// Set 1 untuk mengaktifkan auto-capture tool, 0 untuk compile-out total.
 #define DEBUG_ADC_CALIBRATION 1
 constexpr bool PROFILE_TRIGGER_LATENCY = false;
 constexpr bool PROFILE_ADC_SCAN = false;
@@ -331,14 +321,13 @@ constexpr bool PROFILE_2VOICE_DEBUG = false;
 //
 // 1 = aktifkan diagnostic rolling test di trigger engine
 //    (event ring SPSC non-blocking + counter + laporan).
-// 0 = nonaktif — default RELEASE BUILD. Tidak ada output
-//    diagnostic di Serial.
+// 0 = nonaktif — default RELEASE BUILD, tanpa output diagnostic
+//    di Serial.
 //
-// Infrastruktur dipertahankan (bukan dihapus) supaya bisa
-// diaktifkan lagi untuk DEBUG BUILD; di 0 seluruh kode di
-// compile-out sehingga nol biaya di release.
-//
-// TIDAK mengubah ADC/trigger algorithm/threshold/mask/audio.
+// Infrastruktur dipertahankan (bukan dihapus) supaya bisa diaktifkan
+// lagi untuk DEBUG BUILD; di 0 seluruh kode compile-out sehingga nol
+// biaya di release. TIDAK mengubah ADC/trigger algorithm/threshold/
+// mask/audio.
 
 #ifndef DEBUG_ROLLING_TEST
 #define DEBUG_ROLLING_TEST 0
@@ -348,24 +337,23 @@ constexpr bool PROFILE_2VOICE_DEBUG = false;
 // PLAYABILITY DIAGNOSTIC (infrastruktur debug)
 // ======================================================
 //
-// 1 = aktifkan kumpulan counter playability ringan +
-//     laporan periodik 1 detik (TRIGGER/AUDIO/PREFETCH).
+// 1 = aktifkan counter playability ringan + laporan periodik
+//     1 detik (TRIGGER/AUDIO/PREFETCH).
 // 0 = nonaktif — default RELEASE BUILD, nol output Serial.
 //
-// Di 0 seluruh counter & laporan compile-out sehingga nol
-// biaya runtime. Hanya counter non-invasif (tidak ada
-// print per-hit); laporan dijaga di Core 1 (loop()) dan
-// TIDAK pernah di real-time path Core 0.
+// Di 0 seluruh counter & laporan compile-out sehingga nol biaya
+// runtime. Hanya counter non-invasif (tanpa print per-hit); laporan
+// dijaga di Core 1 (loop()) dan TIDAK pernah di real-time path Core 0.
 //
-// TIDAK mengubah ADC/trigger algorithm/threshold/mask/audio
-// behavior. Hanya observasi.
+// TIDAK mengubah ADC/trigger algorithm/threshold/mask/audio.
+// Hanya observasi.
 
 #ifndef DEBUG_PLAYABILITY
 #define DEBUG_PLAYABILITY 0
 #endif
 
-// Mix-pipeline audit: ring per-mix/per-onset/per-write untuk
-// melacak di titik mana attack multi-pad tertunda
+// Mix-pipeline audit: ring per-mix/per-onset/per-write untuk melacak
+// titik di mana attack multi-pad tertunda
 constexpr bool PROFILE_MIX_AUDIT = false;
 
 #endif // CONFIG_H

@@ -113,11 +113,11 @@ namespace
     // ----------------------------------------------
     // Peak-lock timestamp (RUNTIME + profiling):
     // waktu terakhir kali peak NAIK. Selalu di-update
-    // (tidak digate profiling) sehingga dipakai untuk
-    // early-fire DAN pengukuran rise/stable. DISET di
-    // setiap awal window peak: attack (IDLE) maupun
-    // retrigger (WAIT_RELEASE) -> hindari timestamp
-    // stale lintas hit (root cause underflow data lalu).
+    // (tidak digate profiling) untuk early-fire DAN
+    // pengukuran rise/stable. DISET di setiap awal window
+    // peak (attack IDLE / retrigger WAIT_RELEASE) supaya
+    // timestamp tidak stale lintas hit (dulu root cause
+    // underflow data).
     //   rise   = peakLock - attack   (threshold→peak)
     //   stable = fire     - peakLock  (wasted wait)
 
@@ -135,14 +135,14 @@ namespace
     //   2. ADC baca peak tapi state/mask menolak hit
     //   3. Trigger menghasilkan HIT tapi audio/queue drop
     //
-    // Producer = TriggerTask (Core 1, real-time). Di sini
-    // HANYA increment counter + tulis event ring (non-blocking,
-    // tanpa Serial print). Consumer = rollingTestReport()
-    // yang dipanggil dari triggerProfileReport() (Core 1,
-    // non-real-time) untuk mencetak ke Serial0.
+    // Producer = TriggerTask (Core 1, real-time): HANYA
+    // increment counter + tulis event ring (non-blocking,
+    // tanpa Serial print).
+    // Consumer = rollingTestReport() (Core 1, non-real-time)
+    // yang mencetak ring ke Serial0.
     //
-    // Event ring SPSC (drop-oldest saat penuh supaya event
-    // TERBARU selalu tersimpan; jumlah yang di-drop dicatat).
+    // Event ring SPSC: drop-oldest saat penuh supaya event
+    // TERBARU selalu tersimpan; jumlah yang di-drop dicatat.
 
     enum RollingEventType : uint8_t
     {
@@ -732,17 +732,17 @@ namespace
     // Dynamic mask time berdasarkan velocity
     // --------------------------------------------------
     //
-    // Hard hit = mask lebih panjang (ringing lebih lama)
-    // Soft hit = mask lebih pendek (retrigger lebih cepat)
-    // NOTE: Sekarang pakai per-pad mask dari config.
-    // Fungsi ini masih dipakai untuk adjust halus berdasarkan velocity.
+    // Base = per-pad mask dari config. Hard hit = mask lebih
+    // panjang (ringing lama), soft hit = mask lebih pendek
+    // (retrigger cepat). Fungsi ini hanya untuk adjust halus
+    // berdasarkan velocity.
 
     uint32_t adjustMaskTime(uint32_t baseMaskMs, uint8_t velocity)
     {
-        // Adjust ±30% berdasarkan velocity
-        // Hard hit (velocity tinggi) = mask lebih panjang
-        // Soft hit (velocity rendah) = mask lebih pendek
-        constexpr int32_t ADJUST_RANGE = 30; // persen
+        // adjustment = (velocity-64)*30/127 -> sekitar ±15 ms
+        // dari base (64 = velocity tengah, netral). Hard hit =
+        // mask lebih panjang, soft hit = mask lebih pendek.
+        constexpr int32_t ADJUST_RANGE = 30; // ms (bukan persen)
 
         int32_t adjustment = ((int32_t)velocity - 64) * ADJUST_RANGE / 127;
         int32_t result = (int32_t)baseMaskMs + adjustment;
@@ -759,8 +759,8 @@ namespace
     // --------------------------------------------------
     // Scan pass = adcCacheScanBatch + updatePad semua pad.
     // pbMaxPadGapUs diisi dari hardware.cpp (gap antar
-    // pembacaan pad yang sama). Dibaca oleh playabilityReport()
-    // dari Core 1; nol biaya saat DEBUG_PLAYABILITY = 0.
+    // pembacaan pad yang sama); nol biaya saat
+    // DEBUG_PLAYABILITY = 0.
 
 #if DEBUG_PLAYABILITY
     uint32_t pbScanCount = 0;
@@ -864,19 +864,18 @@ void triggerInit()
 
 void triggerTask()
 {
-    // ADC/trigger sampling deterministik: TIDAK bergantung pada
-    // jumlah active audio voices. Sebelumnya batch turun 6 -> 4
-    // saat ada voice audio aktif, membuat cache ADC lebih stale
-    // persis saat permainan multi-pad -> transient cepat
-    // (hi-hat/snare) bisa terlewat & velocity tidak konsisten.
+    // Sampling deterministik: TIDAK tergantung jumlah voice audio
+    // aktif. Sebelumnya batch turun 6->4 saat ada voice aktif ->
+    // cache ADC lebih stale tepat saat permainan multi-pad, shg
+    // transient cepat (hi-hat/snare) bisa terlewat dan velocity
+    // tidak konsisten.
     //
-    // Data diukur (DEBUG_PLAYABILITY): scanAvg ~300us utk batch 6
-    // => ~50us per analogRead, bukan ~100us. Dengan batch 12 semua
-    // 12 pad di-refresh SETIAP pass (adcNextPad maju 12 -> wrap ke
-    // awal), sehingga kadence pad sama = 1 pass (~1.3-1.8ms) tidak
-    // lagi 2 pass (~3.5ms). Batch 12 = ~600us kerja, masih muat di
-    // jendela preemption AudioTask (~1ms) karena audio (prio 24)
-    // tetap preempt trigger (prio 23); 12 read masih < 1 budget tsb.
+    // Terukur (DEBUG_PLAYABILITY): ~50us per analogRead (dulu
+    // dikira ~100us). Batch 12 = semua pad di-refresh SETIAP pass
+    // (adcNextPad maju 12 -> wrap ke awal): kadence tiap pad =
+    // 1 pass (~1.3-1.8ms), bukan 2 pass (~3.5ms). ~600us kerja per
+    // pass masih muat di jendela preemption AudioTask (~1ms),
+    // karena audio (prio 24) tetap preempt trigger (prio 23).
     constexpr uint8_t ADC_SCAN_BATCH = 12;
 
 #if DEBUG_ROLLING_TEST
@@ -1075,9 +1074,9 @@ void updatePad(
             // sudah jelas hard hit.
             // ------------------------------------------
             //
-            // Jika peak sudah sangat tinggi (>70% max),
-            // tidak perlu tunggu seluruh peak window.
-            // Ini mengurangi latensi untuk pukulan keras.
+            // Peak sudah sangat tinggi (>70% max): tak perlu
+            // tunggu seluruh peak window, latensi pukulan
+            // keras berkurang.
 
             constexpr uint16_t ADAPTIVE_PEAK_THRESHOLD = 2200;
             constexpr uint32_t ADAPTIVE_PEAK_TIME = 800;
@@ -1088,9 +1087,18 @@ void updatePad(
                 pad.lastPeak =
                     pad.peak;
 
+                // Sensitivity tuning: peak ADC * sensitivity/100
+                // sebelum velocity lookup (100 = netral, hasil
+                // identik dengan baseline pad besar yang sudah
+                // aman).
+                uint32_t sensPeak =
+                    (uint32_t)pad.lastPeak *
+                    (uint32_t)pad.config.sensitivity / 100u;
+                if (sensPeak > 4095u) sensPeak = 4095u;
+
                 pad.velocity =
                     calculateVelocity(
-                        pad.lastPeak
+                        (uint16_t)sensPeak
                     );
 
                 pad.hitReady =
@@ -1141,31 +1149,31 @@ void updatePad(
                         );
                     }
 
-                if (now >= padPeakLockTime[padIndex])
-                {
-                    updateTimingStats(
-                        peakStableLatency,
-                        now - padPeakLockTime[padIndex]
-                    );
-                }
+                    if (now >= padPeakLockTime[padIndex])
+                    {
+                        updateTimingStats(
+                            peakStableLatency,
+                            now - padPeakLockTime[padIndex]
+                        );
+                    }
             }
 
-// (adaptive) state -> MASK
+            // (adaptive) state -> MASK
             pad.state =
                 TRIGGER_MASK;
 
             pad.stateTime =
                 now;
 
-            // Per-pad mask + velocity adjustment
-            // Phase 3D fix: base dari pad.config.maskBaseMs
-            // (ms; diisi dari PAD_MASK_MS di padInit). JANGAN
-            // pakai pad.maskTime (sudah µs setelah x1000).
+            // Phase 3D fix: base mask dari pad.config.maskBaseMs (ms),
+            // bukan pad.maskTime (sudah µs setelah x1000). Diisi dari
+            // PAD_MASK_MS di padInit, lalu adjustMaskTime() per hit
+            // berdasarkan velocity.
             pad.maskTime =
                 adjustMaskTime(
                     pad.config.maskBaseMs,
                     pad.velocity
-                ) * 1000; // convert ms ke us
+                ) * 1000;
 
 #if DEBUG_ROLLING_TEST
             rollingRecordHit(
@@ -1199,9 +1207,18 @@ void updatePad(
                 pad.lastPeak =
                     pad.peak;
 
+                // Sensitivity tuning: peak ADC * sensitivity/100
+                // sebelum velocity lookup (100 = netral, hasil
+                // identik dengan baseline pad besar yang sudah
+                // aman).
+                uint32_t sensPeak =
+                    (uint32_t)pad.lastPeak *
+                    (uint32_t)pad.config.sensitivity / 100u;
+                if (sensPeak > 4095u) sensPeak = 4095u;
+
                 pad.velocity =
                     calculateVelocity(
-                        pad.lastPeak
+                        (uint16_t)sensPeak
                     );
 
                 pad.hitReady =
@@ -1252,30 +1269,30 @@ void updatePad(
                         );
                     }
 
-                if (now >= padPeakLockTime[padIndex])
-                {
-                    updateTimingStats(
-                        peakStableLatency,
-                        now - padPeakLockTime[padIndex]
-                    );
-                }
+                    if (now >= padPeakLockTime[padIndex])
+                    {
+                        updateTimingStats(
+                            peakStableLatency,
+                            now - padPeakLockTime[padIndex]
+                        );
+                    }
             }
 
-pad.state =
+            pad.state =
                 TRIGGER_MASK;
 
             pad.stateTime =
                 now;
 
-            // Per-pad mask + velocity adjustment
-            // Phase 3D fix: base dari pad.config.maskBaseMs
-            // (ms; diisi dari PAD_MASK_MS di padInit). JANGAN
-            // pakai pad.maskTime (sudah µs setelah x1000).
+            // Phase 3D fix: base mask dari pad.config.maskBaseMs (ms),
+            // bukan pad.maskTime (sudah µs setelah x1000). Diisi dari
+            // PAD_MASK_MS di padInit, lalu adjustMaskTime() per hit
+            // berdasarkan velocity.
             pad.maskTime =
                 adjustMaskTime(
                     pad.config.maskBaseMs,
                     pad.velocity
-                ) * 1000; // convert ms ke us
+                ) * 1000;
 
 #if DEBUG_ROLLING_TEST
             rollingRecordHit(
@@ -1510,12 +1527,12 @@ void triggerTaskStart()
     }
 
     // Pin ke Core 1 supaya ADC scan TIDAK ter-preempt AudioTask
-    // (Core 0 / priority 24). Sebelumnya TriggerTask di Core 0 (prio 23)
-    // selalu dipreempt AudioTask di core yang sama, men-stretch scan
-    // (scanMax hingga ~2.1 ms) & melebarkan pass jadi ~3 ms.
-    // Di Core 1, trigger lepas dari beban mixing audio -> cadence ADC
-    // mandiri & lebih cepat. Priority tetap 23 (di atas MIDI prio 8).
-    // Value < 25 sesuai batas FreeRTOS environment ini.
+    // (Core 0 / priority 24). Sebelumnya di Core 0 (prio 23) scan
+    // ter-stretch (scanMax ~2.1 ms) & pass melebar ~3 ms karena
+    // selalu dipreempt AudioTask sekore. Di Core 1 cadence ADC
+    // mandiri & lebih cepat (lepas dari beban mixing audio).
+    // Priority tetap 23 (di atas MIDI prio 8), < 25 sesuai batas
+    // FreeRTOS environment ini.
 
     const BaseType_t created = xTaskCreatePinnedToCore(
         triggerTaskLoop,

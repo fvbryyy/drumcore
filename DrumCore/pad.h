@@ -13,7 +13,7 @@ enum TriggerState
 };
 
 // ======================================================
-// Pad Type (metadata/config saja — belum ada behavior
+// Pad Type (metadata/config saja; belum ada behavior
 // khusus di engine fase ini)
 // ======================================================
 
@@ -41,12 +41,14 @@ struct PadConfig
     uint16_t peakTime;
     uint32_t releaseStableTime;
 
-    // Retrigger mask BASE (ms). Face config: runtime mask =
-    // adjustMaskTime(maskBaseMs, velocity) * 1000.
-    // JANGAN pakai sebagai mask runtime microseconds.
+    // Mask BASE (ms): runtime = adjustMaskTime(maskBaseMs,
+    // velocity) * 1000. JANGAN dipakai langsung sebagai
+    // mask runtime (satuan µs).
     uint32_t maskBaseMs;
 
-    // Sensitivity / curve (metadata — dipakai Kit/UI nanti)
+    // Sensitivity: per-pad velocity scaling (100 = netral),
+    // dipakai trigger engine sebelum velocity lookup.
+    // curve masih metadata (belum dipakai).
     uint8_t sensitivity;
     uint8_t curve;
 
@@ -74,10 +76,10 @@ struct Pad
 
     volatile uint8_t velocity = 0;
 
-    // Phase 1: hitReady/velocity/noteOn/noteOffReady dipakai
-    // lintas core. Trigger (Core 0) menulis velocity lalu
-    // set hitReady=true; MIDI task (Core 1) membaca hitReady
-    // lalu velocity. volatile = handoff lock-free.
+    // volatile = handoff lock-free lintas core: trigger
+    // menulis velocity lalu set hitReady=true; MIDI task
+    // membaca hitReady lalu velocity. Urutan tulis ini
+    // yang membuat handoff aman tanpa lock.
 
     volatile bool hitReady = false;
     volatile bool noteOn = false;
@@ -91,7 +93,7 @@ extern Pad pads[PAD_COUNT];
 // ======================================================
 //
 // Satu sumber konfigurasi pad (read-only saat runtime).
-// padInit() meng-copy ke pads[i].config untuk konsumsi
+// padInit() copy ke pads[i].config untuk konsumsi
 // real-time engine. Default dari tabel config.h
 // (PAD_PINS / PAD_MIDI_NOTES / PAD_MASK_MS).
 

@@ -45,9 +45,9 @@ namespace
     // ==================================================
     // PLAYABILITY - gap antar pembacaan pad yang sama
     // ==================================================
-    // pbMaxPadGapUs dibaca dari Core 1 oleh playabilityReport().
-    // Paling cepat satu kali update per pass (pad di-batch);
-    // berisi gap maksimum antar pembacaan pad SAMA.
+    // pbMaxPadGapUs dibaca dari Core 1 oleh playabilityReport():
+    // gap maksimum antar pembacaan pad SAMA (update max 1x
+    // per pass).
 
     uint32_t pbMaxPadGapUs = 0;
     uint32_t pbLastScanUsArr[PAD_COUNT] = {0};
@@ -312,8 +312,8 @@ uint32_t adcPlayabilityMaxPadGapUs()
 // Read Pad ADC (direct index, bukan linear search)
 // ======================================================
 //
-// Sekarang menerima padIndex langsung (0-11),
-// bukan pin number. Menghindari loop pencarian.
+// Menerima padIndex langsung (0-11), bukan pin number —
+// menghindari loop pencarian.
 
 uint16_t readPadADC(uint8_t padIndex)
 {

@@ -16,16 +16,15 @@
 namespace
 {
     // --------------------------------------------------
-    // Path builders (control plane; tidak menyentuh state
-    // loader — path direktori bukan index aktif)
+    // Path builders (control plane; tidak menyentuh state loader)
     //
-    // G2: folder kit MENGIKUTI nama kit ("/kits/ROCK LIVE/"),
-    // jadi path dibangun dari dua sumber:
-    //   - dirResolved()  : lokasi yang SEDANG ADA di SD (via
-    //     resolver kitLoaderResolveKitDir, fallback legacy
-    //     /kits/kitNN). Dipakai untuk READ / EXISTS / RENAME.
-    //   - dirFromName()  : folder berdasar nama (untuk tulis
-    //     kit baru / overwrite CREATE).
+    // G2: folder kit MENGIKUTI nama kit ("/kits/ROCK LIVE/"), jadi
+    // path dibangun dari dua sumber:
+    //   - dirResolved() : lokasi yang SEDANG ADA di SD (via resolver
+    //     kitLoaderResolveKitDir, fallback legacy /kits/kitNN).
+    //     Dipakai untuk READ / EXISTS / RENAME.
+    //   - dirFromName() : folder berdasar nama (untuk tulis kit baru /
+    //     overwrite CREATE).
     // --------------------------------------------------
 
     void dirFromName(const char *name, char *out, size_t len)
@@ -68,11 +67,9 @@ namespace
     }
 
     // --------------------------------------------------
-    // Atomic JSON write: tulis ke ".tmp" lalu pindahkan.
-    // Kalau file tujuan dihapus sebelum rename (target
-    // FAT tidak boleh ada), operasi yang gagal di tengah
-    // SELALU dibersihkan (.tmp dihapus) sehingga file lama
-    // tetap utuh sampai sukses penuh.
+    // Atomic JSON write: tulis ke ".tmp" lalu pindahkan. Operasi
+    // yang gagal di tengah SELALU dibersihkan (.tmp dihapus)
+    // sehingga file lama tetap utuh sampai sukses penuh.
     // --------------------------------------------------
 
     bool writeJsonAtomic(const char *path, JsonDocument &doc)
@@ -103,10 +100,10 @@ namespace
             return false;
         }
 
-        // Simpan file lama ke .bak dulu. Dengan begitu kalau rename
-        // ke path final gagal, file lama bisa dipulihkan — "gagal
-        // operasi = kit tidak berubah" selalu terjaga (atomic best-
-        // effort di FAT yang tidak mengizinkan rename-overwrite).
+        // Simpan file lama ke .bak dulu: kalau rename ke path final
+        // gagal, file lama bisa dipulihkan — "gagal operasi = kit
+        // tidak berubah" selalu terjaga (FAT tak izinkan
+        // rename-overwrite).
         if (SD.exists(bak))
         {
             SD.remove(bak);
@@ -146,7 +143,7 @@ namespace
         PadConfig cfg;
     };
 
-    // Baseline trigger stable (default padInit): threshold=300,
+    // Baseline trigger stabil (default padInit): threshold=300,
     // releaseThreshold=250, peakTime=1200, releaseStableTime=3000,
     // sensitivity=100, curve=0, padType=GENERIC, chokeGroup=0.
     // Sample & note & mask dari tabel config.h.
@@ -171,8 +168,8 @@ namespace
         snprintf(s.sample, sizeof(s.sample), "%s", base ? base + 1 : p);
     }
 
-    // Apply satu pad dari JSON ke source (mirror kit_loader,
-    // ditulis ke buffer lokal supaya tidak ada side effect).
+    // Apply satu pad dari JSON ke source (mirror kit_loader, ditulis
+    // ke buffer lokal supaya tanpa side effect).
     bool resultU8(const JsonVariant &v, uint8_t minV, uint8_t maxV, uint8_t &out)
     {
         if (v.isNull() || !v.is<int>())
@@ -230,8 +227,8 @@ namespace
         uint16_t u16 = 0;
         uint32_t u32 = 0;
 
-        // Batas memakai PAD_FIELD_MIN/MAX (config.h — sumber
-        // kebenaran G8-A), sama dgn UART & kit_loader.
+        // Batas memakai PAD_FIELD_MIN/MAX (config.h — sumber kebenaran
+        // G8-A), sama dgn UART & kit_loader.
         if (resultU8(
                 obj["midiNote"],
                 (uint8_t)PAD_FIELD_MIN[FIELD_MIDI_NOTE],
@@ -360,8 +357,7 @@ namespace
     }
 
     // --------------------------------------------------
-    // Load source per-pad dari kit.json slot (untuk CREATE
-    // EMPTY: sumber factory kit00). Isi default dulu, lalu
+    // Load source per-pad dari kit.json slot. Isi default dulu, lalu
     // override dari JSON. return false jika file/parse gagal.
     // --------------------------------------------------
 
@@ -510,9 +506,9 @@ namespace
         );
     }
 
-    // Salin SEEKALI file ke direktori samples tujuan.
-    // return true bila berhasil; false hanya jika file sumber
-    // ADA tapi gagal disalin (file hilang = skip diam-diam).
+    // Salin SEKALI file ke direktori samples tujuan. return true bila
+    // berhasil; false hanya bila file sumber ADA tapi gagal disalin
+    // (file hilang = skip diam-diam).
     bool copySampleToDir(const char *dstSamplesDir, const char *srcAbs)
     {
         if (!srcAbs || srcAbs[0] == '\0')
@@ -534,9 +530,8 @@ namespace
         return copyFile(srcAbs, dst);
     }
 
-    // Pastikan direktori kit + samples ada (untuk folder
-    // berdasar nama yang mungkin belum punya folder fisik,
-    // mis. hasil DELETE).
+    // Pastikan direktori kit + samples ada (folder berdasar nama
+    // mungkin belum punya folder fisik, mis. hasil DELETE).
     bool ensureKitDirsFromName(const char *name)
     {
         char d[KIT_NAME_STORAGE + 16];
@@ -566,8 +561,8 @@ namespace
     // --------------------------------------------------
     // Copy / delete / move SELURUH pohon direktori
     // (G2 folder move + G3 delete with GC).
-    // G12: Arduino-ESP32 File::name() = basename SAJA (pathToFileName);
-    // full VFS path hanya via File::path(). Operasi SD.* memakai path().
+    // G12: File::name() = basename SAJA; full VFS path hanya via
+    // File::path(). Operasi SD.* memakai path().
     // --------------------------------------------------
 
     bool copyTree(const char *srcDir, const char *dstDir)
@@ -675,9 +670,9 @@ namespace
         return ok;
     }
 
-    // Pindah pohon kit srcDir -> dstDir (G2). Coba rename FAT
-    // asli dulu (atomic, cepat — FatFs mendukung rename direktori);
-    // kalau gagal, fallback copy+delete dengan rollback parsial.
+    // Pindah pohon kit srcDir -> dstDir (G2). Coba rename FAT asli
+    // dulu (atomic, cepat); kalau gagal, fallback copy+delete dengan
+    // rollback parsial.
     bool moveKitTree(const char *srcDir, const char *dstDir)
     {
         if (!srcDir || !dstDir ||
@@ -721,15 +716,13 @@ namespace
     // CREATE (EMPTY / COPY) G2: tulis kit di folder NAMA.
     // --------------------------------------------------
     //
-    // - newDir ("/kits/<name>") adalah destinasi SUDAH MENGIKUTI
-    //   nama kit (bukan index). Kalau slot sudah punya folder di
-    //   lokasi lain (oldDir), folder lama dibersihkan setelah
-    //   sukses supaya filesystem bersih (G3-style GC).
+    // - newDir ("/kits/<name>") SUDAH mengikuti nama kit (bukan index).
+    //   Kalau slot punya folder di lokasi lain (oldDir), folder lama
+    //   dibersihkan setelah sukses (G3-style GC).
     // - Collision: newDir sudah terisi kit milik slot LAIN.
     // - JSON ditulis atomik dulu (authoritative); gagal = tidak
     //   berubah. Sampel disalin best-effort.
-    // - Bila slot == kit aktif, prefix sample loader diarahkan
-    //   ulang supaya copy/struktur selanjutnya konsisten.
+    // - Bila slot == kit aktif, prefix sample loader diarahkan ulang.
 
     KitOpResult writeKitLifecycle(
         uint8_t slot,
@@ -782,8 +775,8 @@ namespace
             removeTree(oldDir);
         }
 
-        // Sapu override NVS lama slot tujuan (best-effort). Kegagalan
-        // di sini TIDAK menggagalkan CREATE (kit sudah valid).
+        // Sapu override NVS lama slot tujuan (best-effort; gagal di
+        // sini TIDAK menggagalkan CREATE — kit sudah valid).
         persistenceClearKit(slot);
 
         // Bila yang ditulis adalah kit yang sedang dimuat, arahkan
@@ -803,21 +796,21 @@ namespace
 
 // --- CREATE cores (dipakai legacy slot-based & named auto-slot) ---
 //
-// Isi judge (KIT RUNTIME):
+// Aturan isi (KIT RUNTIME):
 //   EMPTY = baseline aman murni (defaultPadSource) + mapping sample
 //           kosong ("sample":"" — kit SENYAP sampai user assign via
-//           PAD→SOUND) + folder samples/ KOSONG (tidak ada clone
-//           WAV factory kit00) + TIDAK otomatis aktif.
+//           PAD→SOUND) + folder samples/ KOSONG (tanpa clone WAV
+//           kit00) + TIDAK otomatis aktif.
 //   COPY  = snapshot kit AKTIF (config efektif RAM + mapping sample
 //           by filename) ke folder baru duplikat file — kit hasil
-//           INDEPENDEN. Keduanya menulis lewat writeKitLifecycle
-//           (folder = nama, collision-check, GC folder lama, NVS
-//           override dibersihkan, retarget bila slot aktif).
+//           INDEPENDEN. Keduanya via writeKitLifecycle (folder = nama,
+//           collision-check, GC folder lama, NVS dibersihkan, retarget
+//           bila slot aktif).
 
 static KitOpResult createKitEmpty(uint8_t slot, const char *name)
 {
-    // Baseline aman MURNI dari tabel config.h (bukan kit00). Tidak
-    // pernah membaca/menyalin factory kit00.
+    // Baseline aman MURNI dari tabel config.h (bukan kit00 — tidak
+    // pernah membaca/menyalin factory kit00).
     KitPadSource src[PAD_COUNT];
 
     for (uint8_t i = 0; i < PAD_COUNT; i++)
@@ -833,9 +826,9 @@ static KitOpResult createKitEmpty(uint8_t slot, const char *name)
 
 static KitOpResult createKitCopy(uint8_t slot, const char *name)
 {
-    // Snapshot kit AKTIF (config efektif RAM). Sample name = nama
-    // file resolved (mapping by filename); pad unassigned ikut
-    // tidak punya sample (bukan fallback default root).
+    // Snapshot kit AKTIF (config efektif RAM). Sample = nama file
+    // resolved (mapping by filename); pad unassigned tetap tanpa
+    // sample (bukan fallback root).
     KitPadSource src[PAD_COUNT];
 
     for (uint8_t i = 0; i < PAD_COUNT; i++)
@@ -955,8 +948,8 @@ KitOpResult kitManagerCreateEmptyNamed(const char *name)
     if (slot >= KIT_COUNT)
     {
         // G24.15: "tidak ada slot user kosong" BUKAN kegagalan SD dan
-        // BUKAN backend yang sibuk. Nilai sendiri supaya UI bisa
-        // jujur bilang NO SPACE, bukan generic BUSY.
+        // BUKAN backend sibuk — nilai sendiri supaya UI bisa jujur
+        // bilang NO SPACE, bukan generic BUSY.
         return KitOpResult::NO_SPACE;
     }
 
@@ -1039,10 +1032,10 @@ KitOpResult kitManagerRename(uint8_t slot, const char *name)
     dirFromName(clean, newDir, sizeof(newDir));
 
     // ------------------------------------------------------
-    // Collision (G2): folder nama baru sudah dipakai kit LAIN.
-    // Karena folder = nama kit, ini berarti nama sudah dimiliki
-    // kit lain. Kecuali newDir == oldDir (rename ke nama yang
-    // sudah sama -> hanya update isi).
+    // Collision (G2): folder nama baru sudah dipakai kit LAIN
+    // (folder = nama kit, jadi nama sudah dimiliki kit lain).
+    // Kecuali newDir == oldDir (rename ke nama yang sama ->
+    // hanya update isi).
     // ------------------------------------------------------
     if (SD.exists(newDir) && strcmp(newDir, oldDir) != 0)
     {
@@ -1064,9 +1057,9 @@ KitOpResult kitManagerRename(uint8_t slot, const char *name)
     {
         if (!moveKitTree(oldDir, newDir))
         {
-            // Rollback nama (best-effort). moveKitTree menjamin
-            // sumber utuh saat rename/copy gagal, jadi path lama
-            // masih bisa ditulis.
+            // Rollback nama (best-effort). moveKitTree menjamin sumber
+            // utuh saat rename/copy gagal, jadi path lama masih bisa
+            // ditulis.
             doc["name"] = oldName;
             writeJsonAtomic(path, doc);
             return KitOpResult::BUSY;
@@ -1074,7 +1067,7 @@ KitOpResult kitManagerRename(uint8_t slot, const char *name)
     }
 
     // 3. Cache nama aktif + arahkan ulang prefix sample bila yang
-    //    di-rename adalah kit yang sedang dimuat (folder pindah).
+    //    di-rename adalah kit yang dimuat (folder pindah).
     if (slot == kitManagerActiveSlot())
     {
         kitLoaderRetargetSampleDir(newDir);
@@ -1121,9 +1114,9 @@ KitOpResult kitManagerDelete(uint8_t slot)
     }
     else
     {
-        // Slot sudah tidak ter-resolve (mis. kit.json hilang duluan
-        // atau hanya sisa legacy). Bersihkan sisa folder index &
-        // flat json agar tidak ada orphan.
+        // Slot tak ter-resolve (mis. kit.json hilang duluan / sisa
+        // legacy). Bersihkan sisa folder index & flat json agar
+        // tidak ada orphan.
         char legacyDir[KIT_DIR_LEN];
         snprintf(legacyDir, sizeof(legacyDir), "/kits/kit%02u", (unsigned)slot);
 
@@ -1150,9 +1143,9 @@ KitOpResult kitManagerDelete(uint8_t slot)
     // Sapu override NVS kit tsb (best-effort).
     persistenceClearKit(slot);
 
-    // Boot-kit (NVS active) jangan sampai menunjuk slot yang
-    // dihapus (kasus NVS active != RAM active setelah LOAD via
-    // UART yang tidak mem-persist NVS).
+    // Boot-kit (NVS active) jangan menunjuk slot yang dihapus (kasus
+    // NVS active != RAM active setelah LOAD via UART yang tidak
+    // mem-persist NVS).
     uint8_t savedActive = 0;
     uint8_t savedVolume = 0;
 
@@ -1192,8 +1185,8 @@ KitOpResult kitManagerLoad(uint8_t slot)
 KitOpResult kitManagerSaveActive()
 {
     // Kit SAVE: serialisasi konfigurasi EFEKTIF RAM kit AKTIF ke
-    // kit.json-nya (atomic). kit.json = satu-satunya source of
-    // truth setelah ini; NVS per-kit TIDAK lagi ditulis.
+    // kit.json-nya (atomic). kit.json = satu-satunya source of truth;
+    // NVS per-kit TIDAK lagi ditulis.
     const uint8_t active = uartGetActiveKit();
 
     // Nama aktif dari cache loader (paling akurat — ikut rename).
@@ -1213,9 +1206,9 @@ KitOpResult kitManagerSaveActive()
 
     if (SD.exists(dir) && !SD.exists(jsonPath))
     {
-        // Kit folder ada tapi belum punya JSON (state rusak/legacy
-        // kitNN). Jangan menulis ke folder tanpa JSON — biarkan
-        // resolver tetap konsisten.
+        // Folder ada tapi belum punya JSON (state rusak/legacy kitNN).
+        // Jangan menulis ke folder tanpa JSON — biarkan resolver
+        // tetap konsisten.
         return KitOpResult::BUSY;
     }
 
@@ -1249,21 +1242,20 @@ KitOpResult kitManagerSaveActive()
 
 bool kitManagerMigrateNvsOverrides()
 {
-    // Migrasi sekali waktu (boot) dari blob NVS per-kit legacy
-    // (kit0..kit4) ke kit.json masing-masing. Blob TIDAK pernah
-    // lagi ditulis sejak KIT RUNTIME (kit.json = source of truth).
+    // Migrasi sekali waktu (boot): blob NVS per-kit legacy (kit0..kit4)
+    // di-merge ke kit.json masing-masing. Blob TIDAK pernah lagi
+    // ditulis sejak KIT RUNTIME (kit.json = source of truth).
     //
     // Untuk tiap slot yang punya blob valid:
-    //   - slot harus punya kit.json (resolvasi + file ada). Bila
-    //     tidak ada (kit dihapus / rusak), override dibuang saja
-    //     bersama blob — TIDAK membuat kit baru dari NVS.
-    //   - merge: load isi kit.json sbg baseline, timpa field yang
-    //     VALID menurut decodePad (mengikuti chart PAD_FIELD_MIN/
-    //     MAX), tulis balik atomik. Mapping sample (nama file)
-    //     TIDAK disentuh blob (blob tidak menyimpan sample).
+    //   - slot harus punya kit.json. Bila tidak ada (kit dihapus /
+    //     rusak), override dibuang bersama blob — TIDAK membuat kit
+    //     baru dari NVS.
+    //   - merge: load kit.json sbg baseline, timpa field yang VALID
+    //     (mengikuti PAD_FIELD_MIN/MAX), tulis balik atomik. Mapping
+    //     sample (nama file) TIDAK disentuh blob.
     //
-    // Best-effort total: kegagalan per-slot tidak menggagalkan
-    // slot lain / keseluruhan boot. Semua blob dihapus di akhir.
+    // Best-effort total: kegagalan per-slot tidak menggagalkan slot
+    // lain / boot. Semua blob dihapus di akhir.
 
     for (uint8_t slot = 0; slot < KIT_COUNT; slot++)
     {
@@ -1310,9 +1302,9 @@ bool kitManagerMigrateNvsOverrides()
                 }
             }
 
-            // Nama dibaca langsung dari kit.json (bukan cache loader,
+            // Nama dibaca langsung dari kit.json (bukan cache loader)
             // supaya side-effect free & aman dipanggil saat boot
-            // sebelum kit aktif di-build).
+            // sebelum kit aktif di-build.
             char name[KIT_NAME_STORAGE] = "UNNAMED";
 
             {
@@ -1440,8 +1432,8 @@ bool kitManagerValidateName(
         return false;
     }
 
-    // Titik di ujung (setelah trim spasi): FAT memotong titik akhir
-    // nama — folder hasil != string "name", jadi tolak.
+    // Titik di ujung (setelah trim): FAT memotong titik akhir nama —
+    // folder hasil != string "name", jadi tolak.
     if (name[n - 1] == '.')
     {
         return false;
