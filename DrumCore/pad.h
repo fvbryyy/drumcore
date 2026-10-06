@@ -46,7 +46,9 @@ struct PadConfig
     // JANGAN pakai sebagai mask runtime microseconds.
     uint32_t maskBaseMs;
 
-    // Sensitivity / curve (metadata — dipakai Kit/UI nanti)
+    // Sensitivity: per-pad velocity scaling, 100 = netral.
+    // Trigger engine: peak ADC * sensitivity/100 sebelum
+    // velocity lookup. curve masih metadata (belum dipakai).
     uint8_t sensitivity;
     uint8_t curve;
 

@@ -1088,9 +1088,18 @@ void updatePad(
                 pad.lastPeak =
                     pad.peak;
 
+                // Per-pad sensitivity scaling (tuning): peak ADC
+                // dikali sensitivity/100 sebelum velocity lookup.
+                // sensitivity=100 (default) -> hasil identik,
+                // baseline pad besar tidak berubah.
+                uint32_t sensPeak =
+                    (uint32_t)pad.lastPeak *
+                    (uint32_t)pad.config.sensitivity / 100u;
+                if (sensPeak > 4095u) sensPeak = 4095u;
+
                 pad.velocity =
                     calculateVelocity(
-                        pad.lastPeak
+                        (uint16_t)sensPeak
                     );
 
                 pad.hitReady =
@@ -1199,9 +1208,18 @@ void updatePad(
                 pad.lastPeak =
                     pad.peak;
 
+                // Per-pad sensitivity scaling (tuning): peak ADC
+                // dikali sensitivity/100 sebelum velocity lookup.
+                // sensitivity=100 (default) -> hasil identik,
+                // baseline pad besar tidak berubah.
+                uint32_t sensPeak =
+                    (uint32_t)pad.lastPeak *
+                    (uint32_t)pad.config.sensitivity / 100u;
+                if (sensPeak > 4095u) sensPeak = 4095u;
+
                 pad.velocity =
                     calculateVelocity(
-                        pad.lastPeak
+                        (uint16_t)sensPeak
                     );
 
                 pad.hitReady =
