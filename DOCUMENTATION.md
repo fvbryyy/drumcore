@@ -290,6 +290,10 @@ Adjustment ±30% berdasarkan velocity (hard hit → mask lebih panjang).
 `calculateVelocity(peak)` → lookup LUT 4096 entries (dibangun sekali saat boot).
 Tidak ada floating-point di runtime. Kurva non-linear (gamma).
 
+Per-pad sensitivity scaling (tuning): sebelum lookup, peak ADC dikali
+`pad.config.sensitivity/100` (default 100 = netral, hasil identik).
+Contoh: pad kecil dengan peak 150 dan sensitivity 255 → peak efektif 382.
+
 ---
 
 ## 7. ADC and Calibration
@@ -305,58 +309,55 @@ Tidak ada floating-point di runtime. Kurva non-linear (gamma).
 
 File: `adc_calibration.h`, `adc_calibration.cpp`
 
-Dikontrol via `constexpr bool DEBUG_ADC_CALIBRATION` di `config.h`.
-**Default: `false`** — seluruh kode compile-out saat false, zero runtime overhead.
+Dikontrol via `#define DEBUG_ADC_CALIBRATION` di `config.h`
+(`1` = aktif, `0` = seluruh kode compile-out, zero runtime overhead).
+**Saat ini: `1` (fase hardware tuning). Kembalikan ke `0` setelah
+tuning selesai** — host test `test_gadc_debug_flag` mengharapkan
+flag dalam keadaan mati.
 
 **Tujuan:** Mengukur data hardware sebelum menentukan threshold atau tuning parameter.
-Tidak mengubah trigger/audio/PSRAM. Dipanggil dari `loop()` (non-realtime).
+Tidak mengubah trigger/audio/PSRAM. Dipanggil dari `loop()` (Core 1, non-realtime),
+hanya membaca `adcCache[]` — data yang dilihat tool sama dengan yang dilihat engine.
 
-**Modes:**
+**Mode auto-capture** (tanpa serial command, tanpa user intervention):
 
-| Mode | Fungsi |
+| Output | Fungsi |
 |---|---|
-| BASELINE (5s) | Idle noise per pad: min, avg, max, range |
-| MONITOR | Print 12 ADC setiap 500ms |
-| SINGLE HIT | Capture peak event pada target pad |
-| CROSSTALK | Saat target dipukul, catat leak ke 11 pad lain |
+| `[BASELINE]` tiap 3 detik | Idle noise per pad: min, avg, max, range |
+| `[HIT] PADxx GPIOx peak=x` | Setiap pad yang melewati `CAL_HIT_THRESHOLD` (30) lalu turun kembali — peak pukulan |
+| `[CROSSTALK]` | Jika source peak ≥ `XTALK_SOURCE_THRESHOLD` (400): window observasi 50 ms dibuka **saat hit terdeteksi** (bukan saat hit selesai), max-hold leak ke 11 pad lain, lalu cetak source peak + leak tiap victim + WORST |
 
-**Serial commands** (115200 baud, Serial0/UART0):
-
-| Command | Aksi |
-|---|---|
-| `a` | Mulai baseline 5 detik |
-| `m` | Monitor mode |
-| `s` | Single-hit capture |
-| `x` | Crosstalk capture |
-| `c` | Print full calibration summary |
-| `1`–`9` | Set target PAD01–PAD09 |
-| `0` | Set target PAD10 |
-| `-` | Set target PAD11 |
-| `=` | Set target PAD12 |
-| `h` | Help |
-| Enter / `q` | Stop active mode |
-
-**Data yang dikumpulkan per PAD:**
+Contoh output:
 
 ```
-PAD    GPIO  idle_min  idle_avg  idle_max  idle_range
-PAD01  [GPIO4]    12       14       18         6
+[BASELINE]
+PAD01 GPIO4   idle_min=   8  idle_avg=  12  idle_max=  19  range=  11
+...
 
-SINGLE HIT: source=PAD03 [GPIO6]  peak=2847  timeSinceLast=1234567µs
+[HIT] PAD03 GPIO6  peak=2847
 
-CROSSTALK:  source=PAD03  sourcePeak=2847
-  PAD01 [GPIO4]  leak=45
-  ...
-  WORST: worstVictim=PAD08 [GPIO8]  peak=45
-
-PEAK RANGE: PAD01  idleMax=18  xtalkMax=45  soft=612  medium=1480  hard=3102
+[CROSSTALK]
+SOURCE PAD03 GPIO6  peak=2847
+PAD01 GPIO4   leak=45
+...
+WORST PAD08 GPIO8  peak=45
 ```
+
+**Alur tuning:**
+
+1. Diamkan pad → baca `[BASELINE]` untuk noise floor tiap pad.
+2. Pukul satu pad dengan dinamika main asli (pelan / sedang / keras)
+   → catat `[HIT]` peak sebagai rentang ADC efektif pad tersebut.
+3. Dari blok `[CROSSTALK]` → set `threshold` tiap pad di atas nilai
+   `leak`/`WORST` tertinggi (bukan di atas peak source).
+4. Tentukan `sensitivity` per pad: `peak_keras * sensitivity/100`
+   harus mencapai zona velocity 127 pada LUT (lihat §6 Velocity).
 
 **Cara mengaktifkan:**
-1. Set `constexpr bool DEBUG_ADC_CALIBRATION = true;` di `config.h`
+1. Set `#define DEBUG_ADC_CALIBRATION 1` di `config.h`
 2. Build dan flash ESP32
-3. Buka Serial Monitor 115200 baud (UART0, bukan UART1)
-4. Ketik `h` untuk help
+3. Buka Serial Monitor 115200 baud (UART0/Serial0, bukan UART1)
+4. Baseline terkumpul otomatis — tidak perlu mengetik command apa pun
 
 ---
 
