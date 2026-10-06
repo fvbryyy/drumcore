@@ -9,7 +9,7 @@
 // sebelum menentukan threshold atau velocity curve.
 //
 // Cara pakai:
-//   1. Set DEBUG_ADC_CALIBRATION = true di config.h
+//   1. Set #define DEBUG_ADC_CALIBRATION 1 di config.h
 //   2. Build & flash ESP32
 //   3. Buka Serial Monitor 115200 baud
 //   4. Diamkan pad → baseline otomatis terkumpul & dicetak
@@ -28,8 +28,10 @@
 //   - Storage: static arrays, zero heap
 //
 // Compile-time ON/OFF via config.h:
-//   constexpr bool DEBUG_ADC_CALIBRATION = true/false
-//   false → seluruh kode compile-out, zero overhead
+//   #define DEBUG_ADC_CALIBRATION 1  → aktif (fase tuning)
+//   #define DEBUG_ADC_CALIBRATION 0  → seluruh kode compile-out,
+//                                     zero overhead
+// Kembalikan ke 0 setelah tuning selesai.
 //
 // PAD numbering: PAD01..PAD12 = index 0..11
 // GPIO: dari PAD_PINS[i] di config.h (single source)

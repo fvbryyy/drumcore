@@ -13,8 +13,10 @@
 //               lalu cetak & restart. Tidak pernah berhenti.
 //   HIT       — setiap pad yang melewati CAL_HIT_THRESHOLD
 //               langsung dicetak saat peak-nya selesai.
-//   CROSSTALK — setiap hit kuat (>= XTALK_SOURCE_THRESHOLD)
-//               diikuti window pengukuran leak 12 pad.
+//   CROSSTALK — window pengukuran leak dibuka SAAT hit
+//               terdeteksi (threshold crossed), karena peak
+//               leak mekanik terjadi bersamaan dengan
+//               transient source — bukan setelah hit selesai.
 //
 // Tidak ada Serial input, tidak ada command, tidak ada
 // mode state machine yang butuh user intervention.
@@ -29,9 +31,11 @@ namespace
     constexpr uint32_t BASELINE_PRINT_INTERVAL_MS = 3000;
 
     // Threshold deteksi hit pada loop() non-realtime.
-    // Lebih rendah dari trigger engine threshold (300) supaya
-    // kita tangkap bahkan pukulan sangat pelan.
-    constexpr uint16_t CAL_HIT_THRESHOLD = 150;
+    // 30 dipilih supaya pad kecil (peak ADC 20-150) ikut
+    // terdeteksi. Lihat [BASELINE] print tiap 3 detik untuk
+    // noise floor — naikkan nilai ini jika idle noise
+    // mendekati/menyentuh threshold.
+    constexpr uint16_t CAL_HIT_THRESHOLD = 30;
 
     // Threshold minimum source peak untuk cetak [CROSSTALK].
     // Hit di bawah ini tetap dicetak sebagai [HIT] tapi
@@ -273,6 +277,13 @@ namespace
                         g_hitArmed[i]   = true;
                         g_hitPeak[i]    = v;
                         g_hitStartUs[i] = nowUs;
+
+                        // Buka window crosstalk SEJAK hit terdeteksi
+                        // (bukan saat hit selesai): peak leak mekanik
+                        // terjadi bersamaan dengan transient source.
+                        // Keputusan cetak/batal ada di penutupan hit.
+                        if (!g_xtalkActive)
+                            startCrosstalk(i, v);
                     }
                 }
                 continue;
@@ -302,10 +313,15 @@ namespace
                 g_calData[i].peakLast    = peak;
                 g_calData[i].lastEventUs  = nowUs;
 
-                // Mulai crosstalk jika peak cukup kuat
-                // dan tidak sedang ada crosstalk aktif
-                if (!g_xtalkActive && peak >= XTALK_SOURCE_THRESHOLD)
-                    startCrosstalk(i, peak);
+                // Window crosstalk sudah dibuka saat arm (deteksi).
+                // Jika peak terlalu lemah, batalkan tanpa cetak;
+                // jika cukup kuat, biarkan taskCrosstalk menutup
+                // window & mencetak blok [CROSSTALK].
+                if (g_xtalkActive && g_xtalkSource == i &&
+                    peak < XTALK_SOURCE_THRESHOLD)
+                {
+                    g_xtalkActive = false;
+                }
 
                 // Reset hit state
                 g_hitArmed[i] = false;
